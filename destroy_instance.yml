@@ -1,0 +1,44 @@
+---
+# playbooks/destroy_instance.yml
+#
+# Stops and deletes ONE instance by VMID. This is a hard delete - no
+# snapshot/reset/reuse. Simple by design; a pool-and-reuse model can be
+# layered on top later if needed.
+#
+# Required extra vars (passed by cli.py):
+#   vmid - the VMID to destroy
+#
+# Usage (normally called by cli.py, not run directly):
+#   ansible-playbook playbooks/destroy_instance.yml -e vmid=301
+
+- name: Destroy challenge instance
+  hosts: localhost
+  gather_facts: false
+
+  tasks:
+    - name: Fail early if vmid is missing
+      ansible.builtin.assert:
+        that:
+          - vmid is defined
+        fail_msg: "vmid must be supplied with -e vmid=<id>"
+
+    - name: "Stop VM {{ vmid }}"
+      community.general.proxmox_kvm:
+        api_host: "{{ proxmox_api_host }}"
+        api_user: "{{ proxmox_api_user }}"
+        api_token_id: "{{ proxmox_api_token_id }}"
+        api_token_secret: "{{ vault_proxmox_api_token_secret }}"
+        node: "{{ proxmox_node }}"
+        vmid: "{{ vmid }}"
+        state: stopped
+        force: true
+
+    - name: "Delete VM {{ vmid }}"
+      community.general.proxmox_kvm:
+        api_host: "{{ proxmox_api_host }}"
+        api_user: "{{ proxmox_api_user }}"
+        api_token_id: "{{ proxmox_api_token_id }}"
+        api_token_secret: "{{ vault_proxmox_api_token_secret }}"
+        node: "{{ proxmox_node }}"
+        vmid: "{{ vmid }}"
+        state: absent

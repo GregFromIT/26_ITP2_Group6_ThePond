@@ -1,54 +1,95 @@
-# The Pond - Ansible / Proxmox project structure
+# The Pond - MVP
 
-## Layout
+Minimal CTF instance manager: clone a pre-built Proxmox template, track it
+in SQLite with an expiry time, delete it when time's up (manually or via
+a cron sweep). No pool/checkout model, no snapshots, no session tracking
+beyond "this instance exists and expires at X."
+
+## Structure
 
 ```
-ansible.cfg              Project defaults (inventory path, vault password file)
-inventory/hosts.yml       localhost = control target (we call the Proxmox API, not SSH)
-group_vars/all.yml        Shared, non-secret config: node name, storage, reserved VMIDs
-group_vars/vault.yml      NOT COMMITTED - copy from vault.yml.example, fill in, encrypt
-vars/challenges/*.yml     One file per challenge: template name/vmid, VMID range, pool size
-playbooks/site.yml        Clone + start ONE instance from an existing template
-playbooks/build_pool.yml  Fill a pool of idle instances ahead of demand
-playbooks/sweep_expired.yml   Cron job: stop + release sessions past TTL
-playbooks/release_reset.yml   Roll a released slot back to a clean snapshot, mark available
-scripts/schema.sql         SQLite schema: pool_slots + sessions tables
-scripts/sessions_db.py     CLI wrapper - the ONLY place SQL lives, called via ansible.builtin.command
-session_manager.py         (existing) admin CLI: init-db, list, assign, release
-templates/flag.j2          Per-session flag template, for a future post-clone flag-drop task
+cli.py                    The one entrypoint you run
+db/schema.sql              One table: instances
+db/store.py                All SQL lives here, behind a class interface
+playbooks/create_instance.yml   Clone + start (called by cli.py, not run directly)
+playbooks/destroy_instance.yml  Stop + delete (called by cli.py, not run directly)
+vars/challenges/*.yml       One file per challenge: template name, VMID range, TTL
+group_vars/all.yml           Proxmox node/host/storage (non-secret)
+group_vars/vault.yml.example Copy to vault.yml, fill in, then ansible-vault encrypt
 ```
 
-## First-time setup
+## Setup
 
 ```bash
+pip install pyyaml --break-system-packages
+ansible-galaxy collection install community.general
+
 cp group_vars/vault.yml.example group_vars/vault.yml
+# fill in vault_proxmox_api_token_secret, then:
 ansible-vault encrypt group_vars/vault.yml
-# fill in vault_proxmox_api_token_secret, vault_root_password before encrypting
 
-python3 scripts/sessions_db.py init-db
+python3 cli.py init-db
 ```
 
-## Everyday commands
+## Usage
 
 ```bash
-# Fill/top-up the LockedShields pool
-ansible-playbook playbooks/build_pool.yml -e @vars/challenges/lockedshields.yml
+# Create an instance for "team01" from the lockedshields challenge
+python3 cli.py create --challenge lockedshields --name team01
 
-# Sweep expired sessions (also runnable from cron)
-ansible-playbook playbooks/sweep_expired.yml
+# Same, with an explicit TTL and VMID override
+python3 cli.py create --challenge lockedshields --name team02 --ttl-hours 6 --vmid 310
 
-# Reset a released slot back to available
-ansible-playbook playbooks/release_reset.yml -e vmid=304
+# List everything
+python3 cli.py list
+python3 cli.py list --status active
+
+# Destroy one manually
+python3 cli.py destroy --name lockedshields-team01
+
+# Destroy everything past its expiry (run this from cron)
+python3 cli.py sweep
 ```
 
-## Known open items (see project memory / architecture doc)
+## Cron example (sweep every 10 minutes)
 
-- Proxmox host address 10.1.21.151 falls outside both defined VLAN subnets - unresolved.
-- Template vmid 300 is labeled "LockedShieldsTemplate" in the Proxmox GUI but is
-  UNRELATED to this project (belongs to a separate cluster project). The real
-  LockedShields template is vmid 1000 ("v1Template"). Recommend renaming 1000
-  in the GUI to remove the ambiguity.
-- release_reset.yml assumes a VM snapshot named "clean" exists on each pool
-  template/instance - this snapshot is not yet created as part of build_pool.yml
-  and needs to be added (either baked into the template before first clone,
-  or taken automatically as the last step of build_pool.yml).
+```
+*/10 * * * * cd /opt/thepond && python3 cli.py sweep >> /var/log/thepond-sweep.log 2>&1
+```
+
+## Adding a challenge
+
+Drop a new file in `vars/challenges/<name>.yml`:
+
+```yaml
+challenge: "mychallenge"
+vm_template: "MyChallengeTemplate"   # must already exist in Proxmox
+vmid_range_start: 401
+vmid_range_end: 449
+default_ttl_hours: 3
+```
+
+Nothing else needs to change - `cli.py create --challenge mychallenge --name ...`
+picks it up automatically.
+
+## Deliberately not included (see project memory for the fuller design if needed)
+
+- No pool/checkout model - every `create` clones fresh from the template.
+  If you want faster handout later, that's a v2 addition, not this one.
+- No snapshot/reset-and-reuse - `destroy` is a hard delete via `state: absent`.
+- No per-instance flag generation - out of scope for this MVP; template
+  content (including any flag) is whatever you baked into it manually.
+
+## v2 scaffolding notes
+
+`db/store.py`'s `InstanceStore` class is the only place SQL lives. Every
+method (`create`, `get_by_vmid`, `get_by_name`, `list_all`, `list_expired`,
+`mark_destroyed`) keeps the same name and signature when this moves to
+SQLAlchemy - only the method bodies change from raw `sqlite3` calls to
+`session.query(...)`. `cli.py` and the playbooks never see SQL directly,
+so nothing outside `db/store.py` needs to change for that migration.
+
+`next_free_vmid()` in `cli.py` currently checks only the local db, not live
+Proxmox state - fine for a single operator, but worth reconciling against
+`community.general.proxmox_vm_info` before this is used by more than one
+person at once.

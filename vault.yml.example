@@ -1,8 +1,0 @@
----
-# Copy this file to group_vars/vault.yml, fill in real values, then encrypt:
-#   ansible-vault encrypt group_vars/vault.yml
-#
-# Never commit an unencrypted vault.yml to the jj repo.
-
-vault_proxmox_api_token_secret: "CHANGE_ME"
-vault_root_password: "CHANGE_ME"

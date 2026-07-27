@@ -1,0 +1,50 @@
+---
+# playbooks/create_instance.yml
+#
+# Clones ONE instance from an existing Proxmox template and starts it.
+# Assumes the template already exists (built manually - out of scope here).
+#
+# Required extra vars (passed by cli.py):
+#   vm_template   - name of the Proxmox template to clone
+#   vm_name       - name for the new instance
+#   vmid          - new VMID to assign
+#
+# Usage (normally called by cli.py, not run directly):
+#   ansible-playbook playbooks/create_instance.yml \
+#     -e vm_template=LockedShields-Template -e vm_name=lockedshields-team01 -e vmid=301
+
+- name: Create challenge instance from template
+  hosts: localhost
+  gather_facts: false
+
+  tasks:
+    - name: Fail early if required vars are missing
+      ansible.builtin.assert:
+        that:
+          - vm_template is defined
+          - vm_name is defined
+          - vmid is defined
+        fail_msg: "vm_template, vm_name, and vmid must all be supplied with -e"
+
+    - name: "Clone {{ vm_name }} from {{ vm_template }}"
+      community.general.proxmox_kvm:
+        api_host: "{{ proxmox_api_host }}"
+        api_user: "{{ proxmox_api_user }}"
+        api_token_id: "{{ proxmox_api_token_id }}"
+        api_token_secret: "{{ vault_proxmox_api_token_secret }}"
+        clone: "{{ vm_template }}"
+        full: true
+        name: "{{ vm_name }}"
+        node: "{{ proxmox_node }}"
+        storage: "{{ vm_storage }}"
+        newid: "{{ vmid }}"
+
+    - name: "Start {{ vm_name }}"
+      community.general.proxmox_kvm:
+        api_host: "{{ proxmox_api_host }}"
+        api_user: "{{ proxmox_api_user }}"
+        api_token_id: "{{ proxmox_api_token_id }}"
+        api_token_secret: "{{ vault_proxmox_api_token_secret }}"
+        node: "{{ proxmox_node }}"
+        vmid: "{{ vmid }}"
+        state: started

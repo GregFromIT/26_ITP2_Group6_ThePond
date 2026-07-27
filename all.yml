@@ -4,21 +4,3 @@ proxmox_api_host: "10.1.21.151"
 proxmox_api_user: "ansible@pam"
 proxmox_api_token_id: "ansible"
 vm_storage: "local-lvm"
-
-# VMIDs known to be reserved by OTHER projects on this cluster.
-# Any pool/vmid allocation logic must never touch these.
-# 300  = LockedShieldsTemplate name is MISLEADING - belongs to a separate
-#        cluster project, NOT this challenge pool. Do not reuse.
-# 100, 101, 102, 800, 997, 998, 999 = pre-existing VMs/CTs unrelated to ThePond
-reserved_vmids:
-  - 100
-  - 101
-  - 102
-  - 300
-  - 800
-  - 997
-  - 998
-  - 999
-
-sessions_db_path: "/opt/thepond/sessions.db"
-sessions_db_script: "/opt/thepond/scripts/sessions_db.py"
