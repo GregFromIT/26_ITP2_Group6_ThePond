@@ -1,0 +1,47 @@
+---
+# release_reset.yml
+#
+# Takes a pool slot in status 'resetting' (set by sweep_expired.yml or a
+# manual release) and returns it to a clean state so it can be handed to
+# the next team. Assumes a snapshot named 'clean' was taken on the VM
+# right after it was first cloned and started, before any player touched it.
+#
+# Usage:
+#   ansible-playbook playbooks/release_reset.yml -e vmid=304
+
+- name: Reset a released pool slot to clean state
+  hosts: localhost
+  gather_facts: false
+
+  tasks:
+    - name: Fail early if vmid is missing
+      ansible.builtin.assert:
+        that:
+          - vmid is defined
+        fail_msg: "vmid must be passed with -e vmid=<id>"
+
+    - name: Revert VM to the 'clean' snapshot
+      community.general.proxmox_snap:
+        api_host: "{{ proxmox_api_host }}"
+        api_user: "{{ proxmox_api_user }}"
+        api_token_id: "{{ proxmox_api_token_id }}"
+        api_token_secret: "{{ vault_proxmox_api_token_secret }}"
+        node: "{{ proxmox_node }}"
+        vmid: "{{ vmid }}"
+        snapname: "clean"
+        state: rollback
+
+    - name: Start the VM after rollback
+      community.general.proxmox_kvm:
+        api_host: "{{ proxmox_api_host }}"
+        api_user: "{{ proxmox_api_user }}"
+        api_token_id: "{{ proxmox_api_token_id }}"
+        api_token_secret: "{{ vault_proxmox_api_token_secret }}"
+        node: "{{ proxmox_node }}"
+        vmid: "{{ vmid }}"
+        state: started
+
+    - name: Mark pool slot available again
+      ansible.builtin.command:
+        cmd: "python3 {{ sessions_db_script }} mark-pool-slot-available --vmid {{ vmid }}"
+      changed_when: true

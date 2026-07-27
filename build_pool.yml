@@ -1,0 +1,82 @@
+---
+# build_pool.yml
+#
+# Fills a pool of idle, pre-cloned challenge instances so session checkout
+# is fast (no clone-and-boot wait for the player). Run manually or on a
+# schedule to top up the pool. Registers each slot in sessions.db as
+# status = 'available'.
+#
+# Usage:
+#   ansible-playbook playbooks/build_pool.yml -e @vars/challenges/lockedshields.yml
+
+- name: Build challenge pool
+  hosts: localhost
+  gather_facts: false
+
+  tasks:
+    - name: Fail early if required vars are missing
+      ansible.builtin.assert:
+        that:
+          - challenge_name is defined
+          - vm_template is defined
+          - vmid_range_start is defined
+          - vmid_range_end is defined
+          - pool_size is defined
+        fail_msg: "challenge vars file must define challenge_name, vm_template, vmid_range_start, vmid_range_end, pool_size"
+
+    - name: Get existing VMs to avoid VMID collisions
+      community.general.proxmox_vm_info:
+        api_host: "{{ proxmox_api_host }}"
+        api_user: "{{ proxmox_api_user }}"
+        api_token_id: "{{ proxmox_api_token_id }}"
+        api_token_secret: "{{ vault_proxmox_api_token_secret }}"
+        node: "{{ proxmox_node }}"
+      register: existing_vms
+
+    - name: Compute candidate VMIDs for this pool, skipping ones already in use
+      ansible.builtin.set_fact:
+        used_vmids: "{{ existing_vms.proxmox_vms | map(attribute='vmid') | map('int') | list }}"
+
+    - name: Build list of free VMIDs in range
+      ansible.builtin.set_fact:
+        pool_vmids: "{{ (range(vmid_range_start | int, vmid_range_end | int + 1) | list | difference(used_vmids) | difference(reserved_vmids))[:pool_size | int] }}"
+
+    - name: Fail if not enough free VMIDs to fill the pool
+      ansible.builtin.assert:
+        that:
+          - pool_vmids | length == pool_size | int
+        fail_msg: "Not enough free VMIDs in range {{ vmid_range_start }}-{{ vmid_range_end }} to fill pool_size {{ pool_size }}"
+
+    - name: "Clone pool slot {{ item }} for {{ challenge_name }}"
+      community.general.proxmox_kvm:
+        api_host: "{{ proxmox_api_host }}"
+        api_user: "{{ proxmox_api_user }}"
+        api_token_id: "{{ proxmox_api_token_id }}"
+        api_token_secret: "{{ vault_proxmox_api_token_secret }}"
+        clone: "{{ vm_template }}"
+        full: true
+        name: "{{ challenge_name }}-pool-{{ item }}"
+        node: "{{ proxmox_node }}"
+        storage: "{{ vm_storage }}"
+        newid: "{{ item }}"
+      loop: "{{ pool_vmids }}"
+
+    - name: "Start pool slot {{ item }}"
+      community.general.proxmox_kvm:
+        api_host: "{{ proxmox_api_host }}"
+        api_user: "{{ proxmox_api_user }}"
+        api_token_id: "{{ proxmox_api_token_id }}"
+        api_token_secret: "{{ vault_proxmox_api_token_secret }}"
+        node: "{{ proxmox_node }}"
+        vmid: "{{ item }}"
+        state: started
+      loop: "{{ pool_vmids }}"
+
+    - name: Record each pool slot in sessions.db as available
+      ansible.builtin.command:
+        cmd: >
+          python3 {{ sessions_db_script }} create-pool-slot
+          --challenge "{{ challenge_name }}"
+          --vmid "{{ item }}"
+      loop: "{{ pool_vmids }}"
+      changed_when: true

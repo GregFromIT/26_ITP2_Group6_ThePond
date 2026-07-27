@@ -1,0 +1,12 @@
+---
+challenge_name: "lockedshields"
+vm_template: "v1Template"      # NOTE: template name is generic in the GUI;
+                                # consider renaming to "LockedShields-Template"
+                                # to avoid confusion with vmid 300, which is
+                                # unrelated despite its misleading name.
+template_vmid: 1000
+
+vmid_range_start: 301
+vmid_range_end: 399
+
+pool_size: 3                   # matches LSTeam01-03 currently in Proxmox

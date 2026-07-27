@@ -1,0 +1,59 @@
+---
+# site.yml
+#
+# Clones a single instance from a pre-built Proxmox template and starts it.
+# Assumes the template already exists (built manually via the Proxmox GUI).
+# Does NOT allocate a VMID - vm_newid must be supplied, typically by
+# session_manager.py / sessions.db as part of assigning a pool slot.
+#
+# Usage:
+#   ansible-playbook playbooks/site.yml \
+#     -e @vars/challenges/lockedshields.yml \
+#     -e username=team01 \
+#     -e vm_newid=304
+
+- name: Clone and start challenge VM from template
+  hosts: localhost
+  gather_facts: false
+
+  vars:
+    vm_name: "{{ challenge_name }}-{{ username }}"
+
+  tasks:
+    - name: Fail early if required vars are missing
+      ansible.builtin.assert:
+        that:
+          - challenge_name is defined
+          - vm_template is defined
+          - username is defined
+          - vm_newid is defined
+        fail_msg: "challenge_name, vm_template, username, and vm_newid must all be defined"
+
+    - name: Fail if vm_newid collides with a reserved VMID
+      ansible.builtin.assert:
+        that:
+          - vm_newid | int not in reserved_vmids
+        fail_msg: "vm_newid {{ vm_newid }} is in reserved_vmids - refusing to proceed"
+
+    - name: "Clone {{ vm_name }} from {{ vm_template }}"
+      community.general.proxmox_kvm:
+        api_host: "{{ proxmox_api_host }}"
+        api_user: "{{ proxmox_api_user }}"
+        api_token_id: "{{ proxmox_api_token_id }}"
+        api_token_secret: "{{ vault_proxmox_api_token_secret }}"
+        clone: "{{ vm_template }}"
+        full: true
+        name: "{{ vm_name }}"
+        node: "{{ proxmox_node }}"
+        storage: "{{ vm_storage }}"
+        newid: "{{ vm_newid }}"
+
+    - name: "Start {{ vm_name }}"
+      community.general.proxmox_kvm:
+        api_host: "{{ proxmox_api_host }}"
+        api_user: "{{ proxmox_api_user }}"
+        api_token_id: "{{ proxmox_api_token_id }}"
+        api_token_secret: "{{ vault_proxmox_api_token_secret }}"
+        node: "{{ proxmox_node }}"
+        vmid: "{{ vm_newid }}"
+        state: started
