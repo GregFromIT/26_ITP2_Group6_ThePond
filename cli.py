@@ -3,7 +3,7 @@
 cli.py - The Pond MVP front end.
 
 The one entrypoint a user runs. Wraps two things:
-  1. ansible-playbook, for the actual Proxmox clone/start/stop/delete calls
+  1. provisioner.py, for the actual Proxmox clone/start/stop/delete calls
   2. db/store.py's InstanceStore, for tracking state and expiry in SQLite
 
 Usage:
@@ -14,17 +14,16 @@ Usage:
     python3 cli.py sweep
 """
 import argparse
-import subprocess
 import sys
 import time
 from pathlib import Path
 
 import yaml
 
+import provisioner
 from db.store import InstanceStore
 
 PROJECT_ROOT = Path(__file__).parent
-PLAYBOOKS_DIR = PROJECT_ROOT / "playbooks"
 CHALLENGES_DIR = PROJECT_ROOT / "vars" / "challenges"
 
 
@@ -35,18 +34,6 @@ def load_challenge(challenge_name: str) -> dict:
         sys.exit(1)
     with open(path) as f:
         return yaml.safe_load(f)
-
-
-def run_playbook(playbook: str, extra_vars: dict) -> None:
-    """Shell out to ansible-playbook. Raises on non-zero exit so callers
-    never proceed as if a failed clone/delete succeeded."""
-    cmd = ["ansible-playbook", str(PLAYBOOKS_DIR / playbook)]
-    for key, value in extra_vars.items():
-        cmd.extend(["-e", f"{key}={value}"])
-    result = subprocess.run(cmd)
-    if result.returncode != 0:
-        print(f"error: {playbook} failed (exit {result.returncode})", file=sys.stderr)
-        sys.exit(result.returncode)
 
 
 def next_free_vmid(store: InstanceStore, start: int, end: int) -> int:
@@ -69,24 +56,30 @@ def cmd_init_db(args):
 
 def cmd_create(args):
     challenge = load_challenge(args.challenge)
+    config = provisioner.load_config()
+    client = provisioner.get_client(config)
     store = InstanceStore()
 
     vmid = args.vmid or next_free_vmid(store, challenge["vmid_range_start"], challenge["vmid_range_end"])
     name = f"{args.challenge}-{args.name}"
     ttl_hours = args.ttl_hours or challenge["default_ttl_hours"]
+    node = config["proxmox_node"]
 
     print(f"creating {name} (vmid {vmid}) from template {challenge['vm_template']}...")
-    run_playbook("create_instance.yml", {
-        "vm_template": challenge["vm_template"],
-        "vm_name": name,
-        "vmid": vmid,
-    })
+    provisioner.create_instance(
+        client,
+        node=node,
+        vm_template=challenge["vm_template"],
+        vm_name=name,
+        vmid=vmid,
+        storage=config["vm_storage"],
+    )
 
     record = store.create(
         name=name,
         challenge=args.challenge,
         vmid=vmid,
-        node="pve",
+        node=node,
         ttl_hours=ttl_hours,
     )
     print(f"created: {record}")
@@ -101,6 +94,8 @@ def cmd_list(args):
 
 
 def cmd_destroy(args):
+    config = provisioner.load_config()
+    client = provisioner.get_client(config)
     store = InstanceStore()
     record = store.get_by_name(args.name)
     if record is None:
@@ -108,12 +103,14 @@ def cmd_destroy(args):
         sys.exit(1)
 
     print(f"destroying {record['name']} (vmid {record['vmid']})...")
-    run_playbook("destroy_instance.yml", {"vmid": record["vmid"]})
+    provisioner.destroy_instance(client, node=record["node"], vmid=record["vmid"])
     store.mark_destroyed(record["vmid"])
     print("destroyed.")
 
 
 def cmd_sweep(args):
+    config = provisioner.load_config()
+    client = provisioner.get_client(config)
     store = InstanceStore()
     expired = store.list_expired()
     if not expired:
@@ -121,7 +118,7 @@ def cmd_sweep(args):
         return
     for record in expired:
         print(f"expired: {record['name']} (vmid {record['vmid']}) - destroying...")
-        run_playbook("destroy_instance.yml", {"vmid": record["vmid"]})
+        provisioner.destroy_instance(client, node=record["node"], vmid=record["vmid"])
         store.mark_destroyed(record["vmid"])
     print(f"swept {len(expired)} instance(s).")
 

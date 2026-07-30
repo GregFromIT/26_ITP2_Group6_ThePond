@@ -1,0 +1,34 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <title>The Pond</title>
+  <style>
+    body { font-family: system-ui, sans-serif; max-width: 900px; margin: 2rem auto; padding: 0 1rem; }
+    table { width: 100%; border-collapse: collapse; margin-top: 1rem; }
+    th, td { text-align: left; padding: 0.4rem 0.6rem; border-bottom: 1px solid #ddd; }
+    form.inline { display: inline; }
+    .flash { padding: 0.5rem 0.8rem; margin-bottom: 0.5rem; border-radius: 4px; }
+    .flash.success { background: #e6f4ea; color: #1e7a34; }
+    .flash.error { background: #fdecea; color: #a31515; }
+    fieldset { margin-top: 1.5rem; }
+    label { display: block; margin-top: 0.5rem; }
+    input, select { padding: 0.3rem; }
+    button { padding: 0.3rem 0.8rem; cursor: pointer; }
+  </style>
+</head>
+<body>
+  <h1>The Pond</h1>
+  <p><small>Placeholder GUI - server-rendered forms only, replace when a real frontend is ready.</small></p>
+
+  {% with messages = get_flashed_messages(with_categories=true) %}
+    {% if messages %}
+      {% for category, message in messages %}
+        <div class="flash {{ category }}">{{ message }}</div>
+      {% endfor %}
+    {% endif %}
+  {% endwith %}
+
+  {% block content %}{% endblock %}
+</body>
+</html>
