@@ -1,6 +1,6 @@
 ---
 challenge: "lockedshields"
 vm_template: "v1Template"    # the Proxmox template this challenge clones from
-vmid_range_start: 301
+vmid_range_start: 305
 vmid_range_end: 399
 default_ttl_hours: 3

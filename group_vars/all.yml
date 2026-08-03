@@ -1,6 +1,6 @@
 ---
 proxmox_node: "pve"
 proxmox_api_host: "10.1.21.151"
-proxmox_api_user: "ansible@pam"
-proxmox_api_token_id: "ansible"
+proxmox_api_user: "root@pam"
+proxmox_api_token_id: "root"
 vm_storage: "local-lvm"
