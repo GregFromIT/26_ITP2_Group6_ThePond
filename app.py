@@ -55,19 +55,18 @@ def create():
     name = request.form["name"]
     ttl_hours = request.form.get("ttl_hours") or None
     vmid = request.form.get("vmid") or None
-
     try:
         challenge = load_challenge(challenge_name)
         config = provisioner.load_config()
         client = provisioner.get_client(config)
         store = InstanceStore()
+        node = config["proxmox_node"]
 
         vmid = int(vmid) if vmid else next_free_vmid(
-            store, challenge["vmid_range_start"], challenge["vmid_range_end"]
+            client, node, store, challenge["vmid_range_start"], challenge["vmid_range_end"]
         )
         full_name = f"{challenge_name}-{name}"
         ttl_hours = int(ttl_hours) if ttl_hours else challenge["default_ttl_hours"]
-        node = config["proxmox_node"]
 
         provisioner.create_instance(
             client,
@@ -81,7 +80,6 @@ def create():
         flash(f"created {full_name} (vmid {vmid})", "success")
     except Exception as exc:
         flash(f"create failed: {exc}", "error")
-
     return redirect(url_for("index"))
 
 
@@ -123,4 +121,17 @@ def sweep():
 
 if __name__ == "__main__":
     InstanceStore().init_db()
-    app.run(debug=True)
+
+    config = provisioner.load_config()
+    client = provisioner.get_client(config)
+    node = config["proxmox_node"]
+
+    print("--- LXC containers on pve ---")
+    for ct in client.nodes(node).lxc.get():
+        print(" ", ct["vmid"], ct.get("name"))
+
+    print("--- QEMU VMs on pve ---")
+    for vm in client.nodes(node).qemu.get():
+        print(" ", vm["vmid"], vm.get("name"))
+
+    app.run(host="0.0.0.0", debug=False)

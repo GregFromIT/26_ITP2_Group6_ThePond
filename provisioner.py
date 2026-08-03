@@ -11,6 +11,7 @@ same values the playbooks used via Jinja vars. The token secret is never
 committed - set it via the THEPOND_PROXMOX_TOKEN_SECRET env var (this replaces
 what group_vars/vault.yml held for Ansible).
 """
+
 import os
 from pathlib import Path
 
@@ -20,7 +21,6 @@ from proxmoxer.tools import Tasks
 
 PROJECT_ROOT = Path(__file__).parent
 GROUP_VARS_PATH = PROJECT_ROOT / "group_vars" / "all.yml"
-
 TOKEN_SECRET_ENV = "THEPOND_PROXMOX_TOKEN_SECRET"
 
 
@@ -47,7 +47,16 @@ def get_client(config: dict) -> ProxmoxAPI:
 
 def _resolve_template_vmid(client: ProxmoxAPI, node: str, template_name: str) -> int:
     """proxmox_kvm's `clone:` param takes a template name; the REST clone
-    endpoint needs the template's VMID, so resolve name -> vmid first."""
+    endpoint needs the template's VMID, so resolve name -> vmid first.
+
+    NOTE: this queries the QEMU VM tree, not LXC. v1Template (LockedShields,
+    vmid 1000) is a QEMU VM - confirmed live against pve. If a future
+    challenge template is an LXC container instead, this function (and
+    create_instance/destroy_instance below) will need a variant that hits
+    client.nodes(node).lxc.get() / .lxc(vmid) instead, since Proxmox splits
+    VMs and containers into separate API trees with different clone params
+    (qemu clone takes name=, lxc clone takes hostname=).
+    """
     for vm in client.nodes(node).qemu.get():
         if vm.get("name") == template_name:
             return vm["vmid"]
@@ -66,17 +75,16 @@ def create_instance(
     """Clone `vm_template` to `vmid` and start it. Mirrors
     playbooks/create_instance.yml's clone + start tasks."""
     template_vmid = _resolve_template_vmid(client, node, vm_template)
-
     task = client.nodes(node).qemu(template_vmid).clone.post(
         newid=vmid, name=vm_name, full=1, storage=storage
     )
     Tasks.blocking_status(client, task, timeout=timeout)
-
     client.nodes(node).qemu(vmid).status.start.post()
 
 
-def destroy_instance(client: ProxmoxAPI, node: str, vmid: int) -> None:
+def destroy_instance(client: ProxmoxAPI, node: str, vmid: int, timeout: int = 60) -> None:
     """Force-stop then delete a VM. Mirrors
     playbooks/destroy_instance.yml's stop (force) + delete tasks."""
-    client.nodes(node).qemu(vmid).status.stop.post()
+    task = client.nodes(node).qemu(vmid).status.stop.post()
+    Tasks.blocking_status(client, task, timeout=timeout)
     client.nodes(node).qemu(vmid).delete()

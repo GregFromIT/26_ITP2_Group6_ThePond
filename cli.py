@@ -36,12 +36,15 @@ def load_challenge(challenge_name: str) -> dict:
         return yaml.safe_load(f)
 
 
-def next_free_vmid(store: InstanceStore, start: int, end: int) -> int:
-    """Naive allocation: lowest VMID in range not already tracked in the db.
-    Known limitation: this checks the db, not live Proxmox state, so a VMID
-    created outside this tool won't be seen. Fine for a single-operator MVP;
-    worth reconciling against Proxmox directly in v2."""
-    used = {row["vmid"] for row in store.list_all()}
+def next_free_vmid(client: "ProxmoxAPI", node: str, store: InstanceStore, start: int, end: int) -> int:
+    """Lowest VMID in range not already tracked in the db AND not already
+    in use on Proxmox (as either a QEMU VM or LXC container). Checking
+    live state matters because VMIDs can be occupied outside this tool's
+    knowledge - e.g. LSTeam01/02/03 already exist on pve at 301-303."""
+    db_used = {row["vmid"] for row in store.list_all()}
+    proxmox_used = {vm["vmid"] for vm in client.nodes(node).qemu.get()}
+    proxmox_used |= {ct["vmid"] for ct in client.nodes(node).lxc.get()}
+    used = db_used | proxmox_used
     for vmid in range(start, end + 1):
         if vmid not in used:
             return vmid
@@ -59,11 +62,10 @@ def cmd_create(args):
     config = provisioner.load_config()
     client = provisioner.get_client(config)
     store = InstanceStore()
-
-    vmid = args.vmid or next_free_vmid(store, challenge["vmid_range_start"], challenge["vmid_range_end"])
+    vmid = args.vmid or next_free_vmid(store, challenge["vmid_range_start"], challenge["vmid_range_end"])   # ← EDIT THIS LINE
     name = f"{args.challenge}-{args.name}"
     ttl_hours = args.ttl_hours or challenge["default_ttl_hours"]
-    node = config["proxmox_node"]
+    node = config["proxmox_node"] 
 
     print(f"creating {name} (vmid {vmid}) from template {challenge['vm_template']}...")
     provisioner.create_instance(
