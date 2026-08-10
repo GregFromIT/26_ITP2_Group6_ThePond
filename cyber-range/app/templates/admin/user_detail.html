@@ -1,0 +1,116 @@
+{% extends "base.html" %}
+{% block title %}{{ target['username'] }} · Cyber Range{% endblock %}
+
+{% block content %}
+<header class="page-head">
+  <p class="eyebrow"><a href="{{ url_for('admin.users') }}">Accounts</a> · {{ role_labels[target['role']] }}</p>
+  <h1>{{ target['username'] }}</h1>
+  <p class="lede">{{ target['name'] }} · {{ target['uni_year'] }} · joined {{ target['created_at']|stamp }}</p>
+</header>
+
+{% if not may_act %}
+<aside class="resume">
+  <span class="led led-off" aria-hidden="true"></span>
+  <p>This account is the same level as yours or higher, so the controls are read-only.
+     Another administrator can act on it.</p>
+</aside>
+{% endif %}
+
+<section class="room-grid">
+  <article class="panel">
+    <h2>Account</h2>
+    <dl class="kv">
+      <div><dt>Role</dt><dd class="mono">{{ target['role'] }}</dd></div>
+      <div><dt>Score</dt><dd class="mono">{{ target['points'] }}</dd></div>
+      <div><dt>Last sign-in</dt><dd class="mono">{{ target['last_login_at']|stamp }}</dd></div>
+      <div><dt>Failed attempts</dt><dd class="mono">{{ target['failed_attempts'] }}</dd></div>
+      <div><dt>Locked until</dt><dd class="mono">{{ target['locked_until']|stamp('not locked') }}</dd></div>
+      {% if target['role_set_at'] %}
+      <div><dt>Role set</dt><dd class="mono">{{ target['role_set_at']|stamp }}</dd></div>
+      {% endif %}
+    </dl>
+
+    {% if may_act %}
+      {% if target['locked_until'] %}
+      <form method="post" action="{{ url_for('admin.unlock', user_id=target['user_id']) }}">
+        <input type="hidden" name="_csrf" value="{{ csrf_token() }}">
+        <button class="btn btn-solid btn-block" type="submit">Unlock this account</button>
+      </form>
+      {% endif %}
+
+      {% if can('reset_password') %}
+      <form method="post" action="{{ url_for('admin.reset_password', user_id=target['user_id']) }}">
+        <input type="hidden" name="_csrf" value="{{ csrf_token() }}">
+        <button class="btn btn-outline btn-block" type="submit">Issue a temporary password</button>
+      </form>
+      <p class="hint">Shown once, on this screen. Hand it over in person — it is not stored
+         anywhere readable and cannot be shown again. They must change it before they can
+         use the platform.</p>
+      {% endif %}
+
+      {% if can('lock_account') and not target['locked_until'] %}
+      <form method="post" action="{{ url_for('admin.lock', user_id=target['user_id']) }}">
+        <input type="hidden" name="_csrf" value="{{ csrf_token() }}">
+        <label for="hours">Lock out for (hours)</label>
+        <input id="hours" name="hours" class="mono" value="24" inputmode="numeric">
+        <button class="btn btn-quiet btn-block" type="submit">Lock this account</button>
+      </form>
+      {% endif %}
+    {% endif %}
+  </article>
+
+  <article class="panel">
+    <h2>Access level</h2>
+    {% if can('change_roles') and may_act %}
+      <form method="post" action="{{ url_for('admin.set_role', user_id=target['user_id']) }}">
+        <input type="hidden" name="_csrf" value="{{ csrf_token() }}">
+        <label for="role">Role</label>
+        <select id="role" name="role">
+          {% for role in assignable %}
+            <option value="{{ role }}" {% if target['role'] == role %}selected{% endif %}>
+              {{ role_labels[role] }}
+            </option>
+          {% endfor %}
+        </select>
+        <button class="btn btn-solid btn-block" type="submit">Save role</button>
+      </form>
+      <p class="hint">Changes take effect on their next request and are recorded in the audit log
+         with your name against them.</p>
+    {% elif can('change_roles') %}
+      <p class="empty">You cannot change the role of an account at your own level or above.</p>
+    {% else %}
+      <p class="empty">Only a system administrator can change roles.</p>
+    {% endif %}
+
+    <h3 class="panel-sub">What each role can do</h3>
+    <ul class="flag-list">
+      <li><span class="led led-off" aria-hidden="true"></span><span>Student — takes challenges only</span></li>
+      <li><span class="led led-done" aria-hidden="true"></span><span>Moderator — accounts, unlocks, passwords, sessions</span></li>
+      <li><span class="led led-live" aria-hidden="true"></span><span>Administrator — the above, plus roles</span></li>
+    </ul>
+  </article>
+
+  <article class="panel">
+    <h2>Recent sessions</h2>
+    <ul class="attempt-list mono">
+      {% for row in sessions %}
+      <li>
+        <span>{{ row['challenge_name'] }}</span>
+        <span class="soft">{{ row['status'] }} · {{ row['duration_seconds']|duration }}</span>
+      </li>
+      {% else %}
+      <li class="empty">No sessions yet.</li>
+      {% endfor %}
+    </ul>
+
+    <h3 class="panel-sub">Recent events</h3>
+    <ul class="attempt-list mono">
+      {% for row in events %}
+      <li><span>{{ row['event'] }}</span><span class="soft">{{ row['occurred_at']|stamp }}</span></li>
+      {% else %}
+      <li class="empty">Nothing logged.</li>
+      {% endfor %}
+    </ul>
+  </article>
+</section>
+{% endblock %}
