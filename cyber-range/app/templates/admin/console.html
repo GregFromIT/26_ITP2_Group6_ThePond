@@ -1,0 +1,99 @@
+{% extends "base.html" %}
+{% block title %}Staff console · Cyber Range{% endblock %}
+
+{% block content %}
+<header class="page-head">
+  <p class="eyebrow">{{ role_labels[current_user['role']] }}</p>
+  <h1>Staff console</h1>
+  <p class="lede">Accounts, live sessions and the audit trail.</p>
+</header>
+
+<section class="standing">
+  <div class="standing-id">
+    <p class="eyebrow">Right now</p>
+    <h2>{{ stats['live_sessions'] }} session{{ '' if stats['live_sessions'] == 1 else 's' }} running</h2>
+    <p class="lede small">{{ stats['live_vms'] }} machine{{ '' if stats['live_vms'] == 1 else 's' }} up{% if stats['stuck_vms'] %}, {{ stats['stuck_vms'] }} needing attention{% endif %}.</p>
+  </div>
+  <dl class="figures">
+    <div><dt>Accounts</dt><dd class="mono figure-lg">{{ stats['accounts'] }}</dd></div>
+    <div><dt>Moderators</dt><dd class="mono figure-lg">{{ stats['moderators'] }}</dd></div>
+    <div><dt>Admins</dt><dd class="mono figure-lg">{{ stats['admins'] }}</dd></div>
+    <div><dt>Locked out</dt><dd class="mono figure-lg">{{ stats['locked'] }}</dd></div>
+  </dl>
+</section>
+
+<section class="board-row">
+  <article class="board-small">
+    <header class="board-head"><h3>Locked accounts</h3>
+      <p class="hint">Students who cannot sign in.</p></header>
+    <table class="grid grid-tight">
+      <thead><tr><th>User</th><th class="num">Fails</th><th>Until</th></tr></thead>
+      <tbody>
+        {% for row in locked %}
+        <tr>
+          <td><a href="{{ url_for('admin.user_detail', user_id=row['user_id']) }}">{{ row['username'] }}</a></td>
+          <td class="mono num">{{ row['failed_attempts'] }}</td>
+          <td class="mono soft">{{ row['locked_until']|stamp }}</td>
+        </tr>
+        {% else %}
+        <tr><td colspan="3" class="empty">Nobody is locked out.</td></tr>
+        {% endfor %}
+      </tbody>
+    </table>
+  </article>
+
+  <article class="board-small">
+    <header class="board-head"><h3>Live sessions</h3>
+      <p class="hint">Challenges open right now.</p></header>
+    <table class="grid grid-tight">
+      <thead><tr><th>User</th><th>Challenge</th><th>Started</th></tr></thead>
+      <tbody>
+        {% for row in live %}
+        <tr>
+          <td>{{ row['username'] }}</td>
+          <td>{{ row['challenge_name'] }}</td>
+          <td class="mono soft">{{ row['started_at']|stamp }}</td>
+        </tr>
+        {% else %}
+        <tr><td colspan="3" class="empty">Nothing open.</td></tr>
+        {% endfor %}
+      </tbody>
+    </table>
+    <a class="btn btn-outline btn-block" href="{{ url_for('admin.sessions') }}">Manage sessions</a>
+  </article>
+
+  <article class="board-small">
+    <header class="board-head"><h3>Quick links</h3>
+      <p class="hint">Where the work happens.</p></header>
+    <a class="btn btn-outline btn-block" href="{{ url_for('admin.users') }}">All accounts</a>
+    <a class="btn btn-outline btn-block" href="{{ url_for('admin.audit_log') }}">Audit log</a>
+    {% if can('change_roles') %}
+      <p class="hint">You can grant and remove moderator access from any account page.</p>
+    {% else %}
+      <p class="hint">Role changes are administrator-only.</p>
+    {% endif %}
+  </article>
+</section>
+
+<section class="board">
+  <header class="board-head"><h2>Latest events</h2></header>
+  <div class="table-wrap">
+    <table class="grid">
+      <thead><tr><th>When</th><th>Event</th><th>Account</th><th>Source</th><th>Detail</th></tr></thead>
+      <tbody>
+        {% for row in recent %}
+        <tr>
+          <td class="mono soft">{{ row['occurred_at']|stamp }}</td>
+          <td class="mono">{{ row['event'] }}</td>
+          <td>{{ row['username'] or '—' }}</td>
+          <td class="mono soft">{{ row['source_ip'] }}</td>
+          <td class="soft">{{ row['detail'] or '' }}</td>
+        </tr>
+        {% else %}
+        <tr><td colspan="5" class="empty">Nothing logged yet.</td></tr>
+        {% endfor %}
+      </tbody>
+    </table>
+  </div>
+</section>
+{% endblock %}
