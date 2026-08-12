@@ -8,7 +8,7 @@ Usage:
     python -m db.init_database
 """
 
-from app import app
+from db.database_app import app
 from db.orm import db
 
 # Import every model so SQLAlchemy knows about every table.

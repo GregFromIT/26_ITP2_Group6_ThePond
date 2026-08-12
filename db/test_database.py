@@ -18,7 +18,7 @@ import uuid
 from sqlalchemy import delete
 from sqlalchemy.exc import IntegrityError
 
-from app import app
+from db.database_app import app
 from db.orm import db
 
 from db.user_models import (
