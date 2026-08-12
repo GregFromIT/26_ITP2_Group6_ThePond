@@ -1,0 +1,153 @@
+{% extends "base.html" %}
+{% block title %}{{ theme['name'] }} · Pond Sec{% endblock %}
+
+{% block content %}
+<header class="page-head">
+  <p class="eyebrow">{{ theme['category'] }} · weighting ×{{ '%.1f'|format(theme['weighting']) }}</p>
+  <h1>{{ theme['name'] }}</h1>
+  <p class="lede">{{ theme['summary'] }}</p>
+</header>
+
+{% if active and active['theme_id'] != theme['theme_id'] %}
+<aside class="resume">
+  <span class="led led-live" aria-hidden="true"></span>
+  <p>You have a challenge running under another theme. Close it before starting one here.</p>
+  <a class="btn btn-solid" href="{{ url_for('themes.detail', theme_id=active['theme_id']) }}">Go to it</a>
+</aside>
+{% endif %}
+
+<section class="challenge-list">
+  <h2>Challenges</h2>
+  <div class="tiles tiles-challenges">
+    {% for item in tiles %}
+    {% set challenge = item['challenge'] %}
+    {% set progress = item['progress'] %}
+    {% set live = item['live'] %}
+    <article class="tile tile-challenge {% if live %}is-live{% elif progress['complete'] %}is-done{% endif %}"
+             id="challenge-{{ challenge['challenge_id'] }}">
+      <img class="tile-art"
+           src="{{ url_for('static', filename='img/' ~ (challenge['tile_image'] or 'tile-networking.svg')) }}"
+           alt="">
+      <div class="tile-body">
+        <p class="eyebrow">Challenge {{ challenge['challenge_number'] }} · {{ challenge['difficulty'] }}</p>
+        <h3>{{ challenge['name'] }}</h3>
+        <p>{{ challenge['brief'] }}</p>
+
+        {% if live %}
+        {# The running challenge works in place — there is no separate page. #}
+        <div class="live-panel" data-timer-url="{{ url_for('themes.timer', instance_id=live['instance']['instance_id']) }}">
+          <p class="eyebrow">
+            <span class="led led-live" aria-hidden="true"></span> Running ·
+            <span class="mono" id="clock">--:--:--</span>
+          </p>
+
+          <a class="btn btn-solid btn-block"
+             href="{{ url_for('themes.console', instance_id=live['instance']['instance_id']) }}"
+             target="_blank" rel="noopener noreferrer">Open console</a>
+
+          <form method="post" action="{{ url_for('themes.flag', instance_id=live['instance']['instance_id']) }}">
+            <input type="hidden" name="_csrf" value="{{ csrf_token() }}">
+            <label for="flag-{{ challenge['challenge_id'] }}">Submit a flag</label>
+            <input id="flag-{{ challenge['challenge_id'] }}" name="flag" class="mono"
+                   placeholder="flag{...}" autocomplete="off">
+            <button class="btn btn-outline btn-block" type="submit">Submit flag</button>
+          </form>
+
+          <ul class="flag-list">
+            {% for flag in live['flags'] %}
+            <li class="{% if flag['captured'] %}is-captured{% endif %}">
+              <span class="led {% if flag['captured'] %}led-done{% else %}led-off{% endif %}" aria-hidden="true"></span>
+              <span>{{ flag['label'] }}</span>
+              <span class="mono num">{{ flag['points'] }}</span>
+            </li>
+            {% endfor %}
+          </ul>
+
+          <div class="meter" role="img"
+               aria-label="{{ progress['flags_found'] }} of {{ progress['flags_total'] }} flags captured">
+            <span style="width: {{ (100 * progress['flags_found'] / progress['flags_total']) if progress['flags_total'] else 0 }}%"></span>
+          </div>
+
+          {% if live['attempts'] %}
+          <ul class="attempt-list mono">
+            {% for attempt in live['attempts'] %}
+            <li>
+              <span class="{% if attempt['was_correct'] %}ok{% else %}no{% endif %}">
+                {{ 'correct' if attempt['was_correct'] else 'no match' }}
+              </span>
+              <span class="soft">{{ attempt['submitted_at']|stamp }}</span>
+            </li>
+            {% endfor %}
+          </ul>
+          {% endif %}
+
+          <form method="post" action="{{ url_for('themes.close', instance_id=live['instance']['instance_id']) }}">
+            <input type="hidden" name="_csrf" value="{{ csrf_token() }}">
+            <input type="hidden" name="outcome" value="{{ 'complete' if progress['complete'] else 'abandoned' }}">
+            <button class="btn btn-quiet btn-block" type="submit">
+              {{ 'Close as complete' if progress['complete'] else 'Close and abandon' }}
+            </button>
+          </form>
+          <p class="hint">Closing stops the clock and tears the machine down. Anything you left
+             on the VM goes with it.</p>
+        </div>
+
+        {% else %}
+        <p class="mono soft">
+          {{ progress['flags_found'] }}/{{ progress['flags_total'] }} flags ·
+          {{ progress['points_earned'] }}/{{ progress['points_total'] }} pts ·
+          {{ challenge['vm_name'] or 'no VM mapped' }}
+        </p>
+        <form method="post" action="{{ url_for('themes.launch', challenge_id=challenge['challenge_id']) }}">
+          <input type="hidden" name="_csrf" value="{{ csrf_token() }}">
+          <button class="btn {% if progress['complete'] %}btn-outline{% else %}btn-solid{% endif %} btn-block"
+                  type="submit">
+            {% if progress['complete'] %}Replay{% else %}Launch challenge{% endif %}
+          </button>
+        </form>
+        {% endif %}
+      </div>
+    </article>
+    {% endfor %}
+  </div>
+</section>
+
+<section class="board">
+  <header class="board-head">
+    <h2>Theme scoreboard</h2>
+    <p class="hint">Points per challenge, then the theme weighting applied to the total.</p>
+  </header>
+  <div class="table-wrap">
+    <table class="grid">
+      <thead>
+        <tr>
+          <th>Rank</th><th>User</th>
+          <th class="num">C1</th><th class="num">C2</th><th class="num">C3</th>
+          <th class="num">C4</th><th class="num">C5</th><th class="num">C6</th>
+          <th class="num">Total</th><th class="num">×</th><th class="num">Weighted</th>
+        </tr>
+      </thead>
+      <tbody>
+        {% for row in matrix %}
+        <tr {% if row['user_id'] == current_user['user_id'] %}class="is-you"{% endif %}>
+          <td class="mono rank">{{ '%02d' % row['rank'] }}</td>
+          <td>{{ row['username'] }}{% if row['user_id'] == current_user['user_id'] %} <span class="tag">you</span>{% endif %}</td>
+          {% for key in ['c1','c2','c3','c4','c5','c6'] %}
+            <td class="mono num {% if not row[key] %}zero{% endif %}">{{ row[key] }}</td>
+          {% endfor %}
+          <td class="mono num">{{ row['raw_total'] }}</td>
+          <td class="mono num soft">{{ '%.1f'|format(row['weighting']) }}</td>
+          <td class="mono num strong">{{ row['score'] }}</td>
+        </tr>
+        {% else %}
+        <tr><td colspan="11" class="empty">No scores in this theme yet.</td></tr>
+        {% endfor %}
+      </tbody>
+    </table>
+  </div>
+</section>
+{% endblock %}
+
+{% block scripts %}
+<script src="{{ url_for('static', filename='js/session.js') }}" defer></script>
+{% endblock %}

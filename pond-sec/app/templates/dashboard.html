@@ -1,0 +1,121 @@
+{% extends "base.html" %}
+{% block title %}Dashboard · Pond Sec{% endblock %}
+
+{% block content %}
+<section class="standing">
+  <div class="standing-id">
+    <p class="eyebrow">Signed in as</p>
+    <h1>{{ current_user['username'] }}</h1>
+    <p class="lede small">{{ current_user['name'] }} · {{ current_user['uni_year'] }}</p>
+  </div>
+  <dl class="figures">
+    <div><dt>Score</dt><dd class="mono figure-lg">{{ stats['score'] }}</dd></div>
+    <div><dt>Rank</dt><dd class="mono figure-lg">
+      {%- if stats['rank'] -%}
+        {{ stats['rank'] }}<span class="of">/{{ stats['field_size'] }}</span>
+      {%- else -%}
+        —<span class="of">not ranked</span>
+      {%- endif -%}
+    </dd></div>
+    <div><dt>Challenges done</dt><dd class="mono figure-lg">{{ stats['challenges_complete'] }}</dd></div>
+    <div><dt>Flags captured</dt><dd class="mono figure-lg">{{ stats['flags_captured'] }}</dd></div>
+    <div><dt>Flags played</dt><dd class="mono figure-lg">{{ stats['flags_played'] }}</dd></div>
+    <div><dt>Last solved</dt><dd class="mono">{{ stats['last_solved']|stamp }}</dd></div>
+  </dl>
+</section>
+
+{% if active %}
+<aside class="resume">
+  <span class="led led-live" aria-hidden="true"></span>
+  <p><strong>{{ active['theme_name'] }} · {{ active['challenge_name'] }}</strong> is still running.
+     The clock has not stopped.</p>
+  <a class="btn btn-solid" href="{{ url_for('themes.detail', theme_id=active['theme_id']) ~ '#challenge-' ~ active['challenge_id'] }}">Back to it</a>
+</aside>
+{% endif %}
+
+<section class="board board-wide">
+  <header class="board-head">
+    <h2>Overall leaderboard</h2>
+    <p class="hint">Every flag from every theme, weighted by theme.</p>
+  </header>
+  <div class="table-wrap">
+    <table class="grid">
+      <thead>
+        <tr><th>Rank</th><th>User</th><th class="num">Score</th><th>Last solved</th>
+            <th class="num">Solved</th><th class="num">Flags played</th></tr>
+      </thead>
+      <tbody>
+        {% for row in overall %}
+        <tr {% if row['user_id'] == current_user['user_id'] %}class="is-you"{% endif %}>
+          <td class="mono rank">{{ '%02d' % row['rank'] }}</td>
+          <td>{{ row['username'] }}{% if row['user_id'] == current_user['user_id'] %} <span class="tag">you</span>{% endif %}</td>
+          <td class="mono num">{{ row['score'] }}</td>
+          <td class="mono soft">{{ row['last_solved']|stamp }}</td>
+          <td class="mono num">{{ row['solved_count'] }}</td>
+          <td class="mono num">{{ row['flags_played'] }}</td>
+        </tr>
+        {% else %}
+        <tr><td colspan="6" class="empty">No flags captured yet. The first one sets the pace.</td></tr>
+        {% endfor %}
+      </tbody>
+    </table>
+  </div>
+</section>
+
+<section class="board-row">
+  {% for board in boards %}
+  <article class="board board-small">
+    <header class="board-head">
+      <p class="eyebrow">{{ board['theme']['category'] }}</p>
+      <h3>{{ board['theme']['name'] }}</h3>
+      <p class="hint">Weighting ×{{ '%.1f'|format(board['theme']['weighting']) }}</p>
+    </header>
+    <table class="grid grid-tight">
+      <thead>
+        <tr><th>#</th><th>User</th><th class="num">Score</th><th class="num">Solved</th></tr>
+      </thead>
+      <tbody>
+        {% for row in board['rows'] %}
+        <tr {% if row['user_id'] == current_user['user_id'] %}class="is-you"{% endif %}>
+          <td class="mono rank">{{ '%02d' % row['rank'] }}</td>
+          <td>{{ row['username'] }}</td>
+          <td class="mono num">{{ row['score'] }}</td>
+          <td class="mono num">{{ row['solved_count'] }}</td>
+        </tr>
+        {% else %}
+        <tr><td colspan="4" class="empty">Nobody on the board yet.</td></tr>
+        {% endfor %}
+      </tbody>
+    </table>
+    <a class="btn btn-outline btn-block"
+       href="{{ url_for('themes.detail', theme_id=board['theme']['theme_id']) }}">
+      Enter {{ board['theme']['name'] }}
+    </a>
+  </article>
+  {% endfor %}
+</section>
+
+{% if recent %}
+<section class="board">
+  <header class="board-head"><h2>Your recent sessions</h2></header>
+  <div class="table-wrap">
+    <table class="grid">
+      <thead>
+        <tr><th>Theme</th><th>Challenge</th><th>Started</th><th class="num">Time taken</th><th>Outcome</th></tr>
+      </thead>
+      <tbody>
+        {% for row in recent %}
+        <tr>
+          <td>{{ row['theme_name'] }}</td>
+          <td>{{ row['challenge_name'] }}</td>
+          <td class="mono soft">{{ row['started_at']|stamp }}</td>
+          <td class="mono num">{{ row['duration_seconds']|duration }}</td>
+          <td><span class="status status-{{ row['status'] }}">{{ row['status']|replace('_',' ') }}</span></td>
+        </tr>
+        {% endfor %}
+      </tbody>
+    </table>
+  </div>
+</section>
+{% endif %}
+{% endblock %}
