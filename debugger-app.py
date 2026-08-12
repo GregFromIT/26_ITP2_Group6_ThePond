@@ -27,6 +27,8 @@ import provisioner
 from cli import load_challenge, next_free_vmid
 from db.store import InstanceStore
 from provisioner import get_console_ticket
+from dotenv import load_dotenv
+load_dotenv()
 
 PROJECT_ROOT = Path(__file__).parent
 CHALLENGES_DIR = PROJECT_ROOT / "vars" / "challenges"
