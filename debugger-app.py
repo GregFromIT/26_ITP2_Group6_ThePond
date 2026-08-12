@@ -109,7 +109,7 @@ def destroy(name):
             flash(f"no instance named {name}", "error")
         else:
             provisioner.destroy_instance(client, node=record["node"], vmid=record["vmid"])
-            store.mark_destroyed(record["vmid"])
+            store.destroy(record["vmid"])
             flash(f"destroyed {name}", "success")
     except Exception as exc:
         flash(f"destroy failed: {exc}", "error")

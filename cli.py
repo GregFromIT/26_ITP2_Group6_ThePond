@@ -121,7 +121,7 @@ def cmd_sweep(args):
     for record in expired:
         print(f"expired: {record['name']} (vmid {record['vmid']}) - destroying...")
         provisioner.destroy_instance(client, node=record["node"], vmid=record["vmid"])
-        store.mark_destroyed(record["vmid"])
+        store.delete(record["vmid"])
     print(f"swept {len(expired)} instance(s).")
 
 
