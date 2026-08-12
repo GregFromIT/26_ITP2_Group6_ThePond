@@ -29,7 +29,7 @@ CHALLENGES_DIR = PROJECT_ROOT / "vars" / "challenges"
 app = Flask(__name__)
 app.secret_key = os.environ.get("FLASK_SECRET_KEY", "dev-only-not-for-production")
 app.config["SQLALCHEMY_BINDS"] = {
-	"users": "sqlite:///user.db"
+	"pond": "sqlite:///the_pond.db"
 }
 
 app.config["SQLALCHEMY_TRACK_MODIFICATIONS"] = False

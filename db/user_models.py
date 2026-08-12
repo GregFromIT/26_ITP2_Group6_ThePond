@@ -26,7 +26,7 @@ from db.orm import db
 
 
 class Role(db.Model):
-    __bind_key__ = "users"
+    __bind_key__ = "pond"
     __tablename__ = "roles"
 
     role_id: Mapped[int] = mapped_column(
@@ -58,7 +58,7 @@ class Role(db.Model):
 
 
 class User(db.Model):
-    __bind_key__ = "users"
+    __bind_key__ = "pond"
     __tablename__ = "users"
 
     user_id: Mapped[int] = mapped_column(
@@ -112,7 +112,7 @@ class User(db.Model):
 
 
 class UserCredential(db.Model):
-    __bind_key__ = "users"
+    __bind_key__ = "pond"
     __tablename__ = "user_credentials"
 
     user_id: Mapped[int] = mapped_column(
