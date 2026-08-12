@@ -18,6 +18,7 @@ from pathlib import Path
 import yaml
 from proxmoxer import ProxmoxAPI
 from proxmoxer.tools import Tasks
+from proxmoxer.core import ResourceException   # add to imports
 
 PROJECT_ROOT = Path(__file__).parent
 GROUP_VARS_PATH = PROJECT_ROOT / "group_vars" / "all.yml"
@@ -89,7 +90,18 @@ def get_console_ticket(client: ProxmoxAPI, node: str, vmid: int) -> dict:
 
 def destroy_instance(client: ProxmoxAPI, node: str, vmid: int, timeout: int = 60) -> None:
     """Force-stop then delete a VM. Mirrors
-    playbooks/destroy_instance.yml's stop (force) + delete tasks."""
-    task = client.nodes(node).qemu(vmid).status.stop.post()
+    playbooks/destroy_instance.yml's stop (force) + delete tasks.
+
+    If the VM's config is already gone on Proxmox (e.g. it was destroyed
+    outside this tool, via the GUI or `qm destroy`), Proxmox returns a 500
+    rather than a 404 - this is treated as already-destroyed rather than
+    an error, so the caller's DB cleanup still runs instead of the whole
+    operation failing."""
+    try:
+        task = client.nodes(node).qemu(vmid).status.stop.post()
+    except ResourceException as exc:
+        if exc.status_code == 500 and "does not exist" in (exc.content or ""):
+            return
+        raise
     Tasks.blocking_status(client, task, timeout=timeout)
     client.nodes(node).qemu(vmid).delete()
