@@ -1,0 +1,29 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 640 240" role="img" aria-label="Disk sectors and timeline">
+  <rect width="640" height="240" fill="#16232b"/>
+  <g fill="#22333c">
+    <rect x="40" y="40" width="24" height="24"/><rect x="72" y="40" width="24" height="24"/>
+    <rect x="104" y="40" width="24" height="24"/><rect x="136" y="40" width="24" height="24"/>
+    <rect x="40" y="72" width="24" height="24"/><rect x="72" y="72" width="24" height="24"/>
+    <rect x="104" y="72" width="24" height="24"/><rect x="136" y="72" width="24" height="24"/>
+    <rect x="40" y="104" width="24" height="24"/><rect x="72" y="104" width="24" height="24"/>
+    <rect x="104" y="104" width="24" height="24"/><rect x="136" y="104" width="24" height="24"/>
+  </g>
+  <g fill="#14706b">
+    <rect x="72" y="72" width="24" height="24"/><rect x="136" y="40" width="24" height="24"/>
+    <rect x="104" y="104" width="24" height="24"/>
+  </g>
+  <rect x="72" y="72" width="24" height="24" fill="#b8701a"/>
+  <g stroke="#2f4650" stroke-width="1">
+    <path d="M220 200H600"/>
+  </g>
+  <g stroke="#7f948e" stroke-width="2">
+    <path d="M240 200V172M300 200V184M360 200V160M420 200V184M480 200V176M540 200V188"/>
+  </g>
+  <path d="M360 200V128" stroke="#b8701a" stroke-width="3"/>
+  <circle cx="360" cy="124" r="6" fill="#b8701a"/>
+  <g fill="#7f948e" font-family="monospace" font-size="13">
+    <text x="220" y="60">deleted</text>
+    <text x="220" y="82">carved</text>
+    <text x="220" y="104">mismatch</text>
+  </g>
+</svg>

@@ -1,0 +1,24 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <title>Console</title>
+  <style>
+    html, body { height: 100%; margin: 0; background: #222; }
+    #screen { width: 100%; height: 100%; }
+  </style>
+</head>
+<body>
+  <div id="screen"></div>
+
+  <script type="module">
+    import RFB from "/static/novnc/core/rfb.js";
+
+    const proto = window.location.protocol === "https:" ? "wss" : "ws";
+    const url = `${proto}://${window.location.host}/console/{{ session_id }}/ws`;
+
+    const rfb = new RFB(document.getElementById("screen"), url);
+    rfb.scaleViewport = true;
+  </script>
+</body>
+</html>
