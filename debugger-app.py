@@ -27,6 +27,7 @@ import provisioner
 from cli import load_challenge, next_free_vmid
 from db.store import InstanceStore
 from provisioner import get_console_ticket
+from db.orm import db
 
 PROJECT_ROOT = Path(__file__).parent
 CHALLENGES_DIR = PROJECT_ROOT / "vars" / "challenges"
@@ -34,6 +35,13 @@ CHALLENGES_DIR = PROJECT_ROOT / "vars" / "challenges"
 app = Flask(__name__)
 app.secret_key = os.environ.get("FLASK_SECRET_KEY", "dev-only-not-for-production")
 sock = Sock(app)
+app.config["SQLALCHEMY_BINDS"] = {
+	"pond": "sqlite:///the_pond.db"
+}
+
+app.config["SQLALCHEMY_TRACK_MODIFICATIONS"] = False
+
+db.init_app(app)
 
 
 def list_challenge_names() -> list[str]:
