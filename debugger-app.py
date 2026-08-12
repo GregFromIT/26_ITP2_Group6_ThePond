@@ -109,7 +109,7 @@ def destroy(name):
             flash(f"no instance named {name}", "error")
         else:
             provisioner.destroy_instance(client, node=record["node"], vmid=record["vmid"])
-            store.destroy(record["vmid"])
+            store.delete(record["vmid"])
             flash(f"destroyed {name}", "success")
     except Exception as exc:
         flash(f"destroy failed: {exc}", "error")
@@ -124,20 +124,49 @@ def sweep():
         client = provisioner.get_client(config)
         store = InstanceStore()
         expired = store.list_expired()
+        print("DEBUG: expired list =", expired)
         for record in expired:
             provisioner.destroy_instance(client, node=record["node"], vmid=record["vmid"])
-            store.mark_destroyed(record["vmid"])
+            print("DEBUG 4: destroy_instance returned, about to delete DB row for vmid", record["vmid"])
+            store.delete(record["vmid"])
+            print("DEBUG 5: DB row deleted")
         flash(f"swept {len(expired)} instance(s)", "success")
     except Exception as exc:
+        print("DEBUG EXCEPTION:", type(exc), repr(exc))
         flash(f"sweep failed: {exc}", "error")
-
     return redirect(url_for("index"))
 
 
 @app.route("/console/<session_id>")
 def console_page(session_id):
-    return render_template("console.html", session_id=session_id)
+    config = provisioner.load_config()
+    client_ = provisioner.get_client(config)
+    store = InstanceStore()
+    instance = store.get_instance_by_session(session_id)
+    if instance is None:
+        flash(f"no such session {session_id}", "error")
+        return redirect(url_for("index"))
 
+    ticket = get_console_ticket(client_, instance["node"], instance["vmid"])
+    return render_template("console.html", session_id=session_id, vnc_password=ticket["ticket"])
+
+@app.route("/submit-flag/<name>", methods=["POST"])
+def submit_flag(name):
+    submitted = request.form.get("flag", "")
+    try:
+        store = InstanceStore()
+        record = store.get_by_name(name)
+        if record is None:
+            flash(f"no instance named {name}", "error")
+        else:
+            challenge = load_challenge(record["challenge"])
+            if provisioner.check_flag(submitted, challenge["flag"]):
+                flash(f"correct flag for {name}!", "success")
+            else:
+                flash("incorrect flag", "error")
+    except Exception as exc:
+        flash(f"flag submission failed: {exc}", "error")
+    return redirect(url_for("index"))
 
 @sock.route("/console/<session_id>/ws")
 def console_relay(ws, session_id):
@@ -173,13 +202,17 @@ def console_relay(ws, session_id):
         try:
             while True:
                 data = upstream.recv()
+                print("DEBUG upstream->client:", type(data), repr(data)[:200])
                 if data == "":
                     break
                 ws.send(data)
-        except Exception:
-            pass
+        except Exception as exc:
+            print("DEBUG pump_upstream_to_client exception:", type(exc), repr(exc))
         finally:
-            ws.close()
+            try:
+                ws.close()
+            except Exception as exc:
+                print("DEBUG ws.close() in finally raised:", repr(exc))
 
     threading.Thread(target=pump_upstream_to_client, daemon=True).start()
 

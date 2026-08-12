@@ -18,7 +18,7 @@ from pathlib import Path
 import yaml
 from proxmoxer import ProxmoxAPI
 from proxmoxer.tools import Tasks
-from proxmoxer.core import ResourceException   # add to imports
+from proxmoxer.core import ResourceException   
 
 PROJECT_ROOT = Path(__file__).parent
 GROUP_VARS_PATH = PROJECT_ROOT / "group_vars" / "all.yml"
@@ -87,6 +87,17 @@ def get_console_ticket(client: ProxmoxAPI, node: str, vmid: int) -> dict:
     """One-time VNC ticket + port for the noVNC console proxy."""
     return client.nodes(node).qemu(vmid).vncproxy.post(websocket=1)
 
+def instance_exists(client: ProxmoxAPI, node: str, vmid: int) -> bool:
+    """Check a single VM directly via its status endpoint, rather than
+    fetching the full VM list for the node and searching it - O(1) request
+    instead of O(n)."""
+    try:
+        client.nodes(node).qemu(vmid).status.current.get()
+        return True
+    except ResourceException as exc:
+        if exc.status_code == 500 and "does not exist" in (exc.content or ""):
+            return False
+        raise
 
 def destroy_instance(client: ProxmoxAPI, node: str, vmid: int, timeout: int = 60) -> None:
     """Force-stop then delete a VM. Mirrors
@@ -97,11 +108,12 @@ def destroy_instance(client: ProxmoxAPI, node: str, vmid: int, timeout: int = 60
     rather than a 404 - this is treated as already-destroyed rather than
     an error, so the caller's DB cleanup still runs instead of the whole
     operation failing."""
-    try:
-        task = client.nodes(node).qemu(vmid).status.stop.post()
-    except ResourceException as exc:
-        if exc.status_code == 500 and "does not exist" in (exc.content or ""):
-            return
-        raise
+    if not instance_exists(client, node, vmid):
+        return
+    task = client.nodes(node).qemu(vmid).status.stop.post()
     Tasks.blocking_status(client, task, timeout=timeout)
     client.nodes(node).qemu(vmid).delete()
+
+
+def check_flag(submitted: str, expected: str) -> bool:
+    return submitted.strip() == expected.strip()

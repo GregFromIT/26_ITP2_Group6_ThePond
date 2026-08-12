@@ -15,9 +15,12 @@
     import RFB from "/static/novnc/core/rfb.js";
 
     const proto = window.location.protocol === "https:" ? "wss" : "ws";
-    const url = `${proto}://${window.location.host}/console/{{ session_id }}/ws`;
+    const ticket = "{{ vnc_password }}";
+    const url = `${proto}://${window.location.host}/console/{{ session_id }}/ws?ticket=${encodeURIComponent(ticket)}`;
 
-    const rfb = new RFB(document.getElementById("screen"), url);
+    const rfb = new RFB(document.getElementById("screen"), url, {
+        credentials: { password: ticket }
+    });
     rfb.scaleViewport = true;
   </script>
 </body>
