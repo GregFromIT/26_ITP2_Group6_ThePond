@@ -45,6 +45,10 @@ class InstanceStore:
         row = self._conn.execute("SELECT * FROM instances WHERE name = ?", (name,)).fetchone()
         return dict(row) if row else None
 
+    def get_instance_by_session(self, session_id) -> dict | None:
+        row = self._conn.execute("SELECT * FROM instances WHERE vmid = ?", (session_id,)).fetchone()
+        return dict(row) if row else None
+
     def list_all(self, status: str | None = None) -> list[dict]:
         if status:
             rows = self._conn.execute("SELECT * FROM instances WHERE status = ?", (status,)).fetchall()

@@ -1,0 +1,13 @@
+{% extends "base.html" %}
+{% block title %}{{ heading }} · Pond Sec{% endblock %}
+
+{% block content %}
+<section class="form-page">
+  <div class="form-card">
+    <p class="eyebrow mono">Error {{ code }}</p>
+    <h1>{{ heading }}</h1>
+    <p class="lede small">{{ message }}</p>
+    <a class="btn btn-solid btn-block" href="{{ url_for('dashboard.landing') }}">Back to the start</a>
+  </div>
+</section>
+{% endblock %}

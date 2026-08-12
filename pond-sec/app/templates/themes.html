@@ -1,0 +1,30 @@
+{% extends "base.html" %}
+{% block title %}Themes · Pond Sec{% endblock %}
+
+{% block content %}
+<header class="page-head">
+  <p class="eyebrow">Themes</p>
+  <h1>Pick a theme</h1>
+  <p class="lede">Six challenges per theme, each one harder than the last. Your progress
+     carries across sessions.</p>
+</header>
+
+<section class="tiles">
+  {% for card in cards %}
+  <a class="tile" href="{{ url_for('themes.detail', theme_id=card['theme']['theme_id']) }}">
+    <img class="tile-art"
+         src="{{ url_for('static', filename='img/' ~ (card['theme']['tile_image'] or 'tile-networking.svg')) }}"
+         alt="">
+    <div class="tile-body">
+      <p class="eyebrow">{{ card['theme']['category'] }}</p>
+      <h2>{{ card['theme']['name'] }}</h2>
+      <p>{{ card['theme']['summary'] }}</p>
+      <p class="mono soft">
+        {{ card['progress']['flags_found'] }}/{{ card['progress']['flags_total'] }} flags ·
+        weighting ×{{ '%.1f'|format(card['theme']['weighting']) }}
+      </p>
+    </div>
+  </a>
+  {% endfor %}
+</section>
+{% endblock %}

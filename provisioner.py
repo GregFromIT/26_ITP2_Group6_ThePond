@@ -82,6 +82,11 @@ def create_instance(
     client.nodes(node).qemu(vmid).status.start.post()
 
 
+def get_console_ticket(client: ProxmoxAPI, node: str, vmid: int) -> dict:
+    """One-time VNC ticket + port for the noVNC console proxy."""
+    return client.nodes(node).qemu(vmid).vncproxy.post(websocket=1)
+
+
 def destroy_instance(client: ProxmoxAPI, node: str, vmid: int, timeout: int = 60) -> None:
     """Force-stop then delete a VM. Mirrors
     playbooks/destroy_instance.yml's stop (force) + delete tasks."""

@@ -1,0 +1,40 @@
+{% extends "base.html" %}
+{% block title %}Audit log · Pond Sec{% endblock %}
+
+{% block content %}
+<header class="page-head">
+  <p class="eyebrow">Staff console</p>
+  <h1>Audit log</h1>
+  <p class="lede">Every authentication decision, role change and session event, newest first.
+     Read-only — nothing in the platform can edit or delete these rows.</p>
+</header>
+
+<form class="search-row" method="get" action="{{ url_for('admin.audit_log') }}">
+  <select name="event" aria-label="Filter by event">
+    <option value="">All events</option>
+    {% for row in events %}
+      <option value="{{ row['event'] }}" {% if selected == row['event'] %}selected{% endif %}>{{ row['event'] }}</option>
+    {% endfor %}
+  </select>
+  <button class="btn btn-outline" type="submit">Filter</button>
+</form>
+
+<div class="table-wrap">
+  <table class="grid">
+    <thead><tr><th>When</th><th>Event</th><th>Account</th><th>Source</th><th>Detail</th></tr></thead>
+    <tbody>
+      {% for row in rows %}
+      <tr>
+        <td class="mono soft">{{ row['occurred_at']|stamp }}</td>
+        <td class="mono">{{ row['event'] }}</td>
+        <td>{{ row['username'] or '—' }}</td>
+        <td class="mono soft">{{ row['source_ip'] }}</td>
+        <td class="soft">{{ row['detail'] or '' }}</td>
+      </tr>
+      {% else %}
+      <tr><td colspan="5" class="empty">Nothing logged yet.</td></tr>
+      {% endfor %}
+    </tbody>
+  </table>
+</div>
+{% endblock %}

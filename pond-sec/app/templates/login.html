@@ -1,0 +1,32 @@
+{% extends "base.html" %}
+{% block title %}Sign in · Pond Sec{% endblock %}
+
+{% block content %}
+<section class="form-page">
+  <div class="form-card">
+    <p class="eyebrow">Sign in</p>
+    <h1>Back to the range</h1>
+    <form method="post" novalidate>
+      <input type="hidden" name="_csrf" value="{{ csrf_token() }}">
+      <label for="username">Username</label>
+      <input id="username" name="username" value="{{ username }}" autocomplete="username" required autofocus>
+
+      <label for="password">Password</label>
+      <input id="password" name="password" type="password" autocomplete="current-password" required>
+
+      <button class="btn btn-solid btn-lg btn-block" type="submit">Sign in</button>
+    </form>
+    <p class="hint">
+      {{ config['MAX_LOGIN_ATTEMPTS'] }} failed attempts locks the account for
+      {{ config['LOCKOUT_MINUTES'] }} minutes.
+    </p>
+    <p class="hint">
+      Forgotten your password? Ask a moderator or your course administrator and they
+      will issue you a temporary one.
+    </p>
+    <p class="form-foot">
+      <a href="{{ url_for('auth.register') }}">Create an account</a>
+    </p>
+  </div>
+</section>
+{% endblock %}
