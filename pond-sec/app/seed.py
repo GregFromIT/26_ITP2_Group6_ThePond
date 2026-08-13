@@ -46,7 +46,7 @@ VMS = [
     ("forensics-lin", "pve", 9202, 2, 4096, "Linux host with deleted artefacts"),
     ("web-dvwa", "pve", 9301, 2, 2048, "Deliberately vulnerable web stack"),
     ("web-api", "pve", 9302, 2, 2048, "REST API with broken access control"),
-]
+] # change to vars/challenges
 
 THEMES = [
     {
