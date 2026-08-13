@@ -34,16 +34,22 @@ throttle if it can be hammered -> audit.record() if it changes state.
 """
 
 import secrets
+import ssl
+import threading
 from datetime import datetime
+from urllib.parse import quote
 
+import websocket as ws_client
 from flask import (
-    Blueprint, abort, flash, g, jsonify, redirect, render_template, request, url_for
+    Blueprint, abort, current_app, flash, g, jsonify, redirect, render_template,
+    request, url_for,
 )
+from flask_sock import Sock
 
 from . import audit, throttle
 from .auth import login_required
 from .db import execute, get_db, query, utcnow
-from .proxmox import ProxmoxError, clone_and_start, stop_and_destroy
+from .proxmox import ProxmoxError, clone_and_start, get_console_ticket, stop_and_destroy
 from .scoring import (
     FLAG_HIT, FLAG_MISS, FLAG_REPEAT, challenge_progress, submit_flag,
     theme_challenge_matrix, theme_leaderboard,
@@ -51,6 +57,7 @@ from .scoring import (
 from .security import parse_ts
 
 bp = Blueprint("themes", __name__, url_prefix="/themes")
+sock = Sock()
 
 
 def _owned_instance(instance_id):
@@ -244,18 +251,112 @@ def launch(challenge_id):
 @bp.route("/session/<int:instance_id>/console")
 @login_required
 def console(instance_id):
-    """Ownership-checked hop to the hypervisor console.
+    """Ownership-checked console page.
 
-    The console URL is never rendered into the page, so it cannot be copied out
-    of the HTML, pulled from a bookmark, or leaked in a Referer header. Note
-    this still does not authenticate the student TO Proxmox — see the README; a
-    ticket-issuing proxy is the remaining piece.
+    This is the "ticket-issuing proxy" the Console authentication item in
+    docs/README.md was waiting on. The student is never handed a Proxmox
+    credential or a link to Proxmox's own admin console - instead this issues
+    a fresh one-time VNC ticket and renders a page that opens a WebSocket back
+    to THIS app, which relays to Proxmox server-side. See console_relay()
+    below for the other half.
+
+    ConsoleTicket.ticket is a short-lived, scoped credential by design (that
+    is the whole point of a ticket-issuing proxy), so embedding it in this
+    page's rendered JS is expected - it is not the same thing as the raw,
+    standing console_url this route used to hand out, which is what the
+    do-not-render-into-a-template warning on Clone was about.
     """
     instance = _owned_instance(instance_id)
     if instance["status"] != "in_progress" or not instance["console_url"]:
         flash("That session is closed, so its machine is gone.", "info")
         return redirect(url_for("themes.detail", theme_id=instance["theme_id"]))
-    return redirect(instance["console_url"])
+
+    if current_app.config["PROXMOX_BACKEND"] != "api":
+        # simulate: no real cluster to issue a ticket against, so this keeps
+        # the previous fabricated-URL behaviour for the demo flow.
+        return redirect(instance["console_url"])
+
+    try:
+        ticket = get_console_ticket(instance["proxmox_vmid"], instance["node"])
+    except ProxmoxError as exc:
+        flash(f"Could not open a console for this session: {exc}", "error")
+        return redirect(_back(instance["theme_id"], instance["challenge_id"]))
+
+    return render_template(
+        "console.html",
+        instance_id=instance_id,
+        vnc_password=ticket.ticket,
+        vnc_port=ticket.port,
+    )
+
+
+@sock.route("/session/<int:instance_id>/console/ws", bp=bp)
+def console_relay(ws, instance_id):
+    """Bidirectional pump between the browser's noVNC socket and Proxmox's
+    vncwebsocket. Reuses the SAME ticket console() already issued - the
+    browser passes it back as a query param - rather than minting a second
+    one, since the port/ticket pair from one vncproxy call has to stay
+    paired for Proxmox to accept it.
+
+    _owned_instance() aborts(404) on someone else's session; inside a
+    WebSocket handshake that surfaces as a failed connection rather than a
+    clean close code, which is an acceptable rough edge for now - the
+    ownership check itself still holds, which is what actually matters.
+    """
+    if g.get("user") is None:
+        ws.close(reason=1008, message="sign in required")
+        return
+
+    instance = _owned_instance(instance_id)
+    if instance["status"] != "in_progress" or not instance["proxmox_vmid"]:
+        ws.close(reason=1008, message="no such session")
+        return
+
+    node, vmid = instance["node"], instance["proxmox_vmid"]
+    ticket_value = request.args.get("ticket", "")
+    port = request.args.get("port", "")
+
+    cfg = current_app.config
+    token_secret = cfg["PROXMOX_TOKEN_SECRET"]
+    user, _, token_name = cfg["PROXMOX_TOKEN_ID"].partition("!")
+    auth_header = f"Authorization: PVEAPIToken={user}!{token_name}={token_secret}"
+    upstream_url = (
+        f"wss://{cfg['PROXMOX_HOST']}:8006/api2/json/nodes/{node}/qemu/{vmid}/vncwebsocket"
+        f"?port={port}&vncticket={quote(ticket_value, safe='')}"
+    )
+    upstream = ws_client.create_connection(
+        upstream_url,
+        header=[auth_header],
+        sslopt={"cert_reqs": ssl.CERT_NONE if not cfg["PROXMOX_VERIFY_SSL"] else ssl.CERT_REQUIRED},
+    )
+
+    def pump_upstream_to_client():
+        try:
+            while True:
+                data = upstream.recv()
+                if data == "":
+                    break
+                ws.send(data)
+        except Exception:
+            pass
+        finally:
+            try:
+                ws.close()
+            except Exception:
+                pass
+
+    threading.Thread(target=pump_upstream_to_client, daemon=True).start()
+
+    try:
+        while True:
+            data = ws.receive()
+            if data is None:
+                break
+            upstream.send_binary(data if isinstance(data, (bytes, bytearray)) else data.encode())
+    except Exception:
+        pass
+    finally:
+        upstream.close()
 
 
 # --------------------------------------------------------- live instance

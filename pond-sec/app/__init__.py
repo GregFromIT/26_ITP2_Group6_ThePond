@@ -77,6 +77,7 @@ def create_app(test_config=None):
     csrf.init_app(app)
     roles.init_app(app)      # exposes can() to templates
     admin.init_app(app)      # registers the set-role CLI command
+    themes.sock.init_app(app)   # WebSocket console relay - see themes.console_relay
 
     app.before_request(force_https)
     app.before_request(auth.load_logged_in_user)

@@ -38,6 +38,28 @@ class Clone:
     status: str
 
 
+@dataclass
+class ConsoleTicket:
+    """A one-time VNC ticket for a single console session.
+
+    Never render .ticket into a template or log it - it is a short-lived
+    credential, same handling rule as console_url on Clone."""
+    ticket: str
+    port: str
+
+
+def get_console_ticket(vmid: int, node: str = None) -> ConsoleTicket:
+    """One-time VNC ticket + port for a session's console, via the same
+    proxmoxer connection every other real-API call in this file uses."""
+    node = node or current_app.config["PROXMOX_NODE"]
+    proxmox = _connect()
+    try:
+        result = proxmox.nodes(node).qemu(vmid).vncproxy.post(websocket=1)
+    except Exception as exc:
+        raise ProxmoxError(f"Proxmox refused the console ticket: {exc}") from exc
+    return ConsoleTicket(ticket=result["ticket"], port=result["port"])
+
+
 class ProxmoxError(RuntimeError):
     """Raised when the hypervisor refuses a clone, start or stop."""
 
@@ -127,10 +149,44 @@ def _api_clone(template_vmid: int, node: str, label: str) -> Clone:
     )
 
 
-def _api_destroy(vmid: int, node: str):
+def instance_exists(vmid: int, node: str) -> bool:
+    """Check a single VM directly via its status endpoint, rather than
+    fetching the whole node's VM list - one request instead of every VM's
+    config. Used to make teardown idempotent: a VM already gone on Proxmox
+    (closed by hand, or a retried teardown) is not an error."""
+    from proxmoxer.core import ResourceException
+
     proxmox = _connect()
     try:
-        proxmox.nodes(node).qemu(vmid).status.stop.post()
+        proxmox.nodes(node).qemu(vmid).status.current.get()
+        return True
+    except ResourceException as exc:
+        if exc.status_code == 500 and "does not exist" in (exc.content or ""):
+            return False
+        raise
+
+
+def _api_destroy(vmid: int, node: str):
+    """Stop-then-delete, made idempotent and race-safe.
+
+    Two failure modes this guards against, both seen in practice:
+      - calling delete() right after stop() without waiting for the stop
+        task to finish - Proxmox rejects the delete while the VM is still
+        mid-shutdown, since stop is asynchronous (Tasks.blocking_status
+        waits for the real completion rather than guessing a sleep).
+      - the VM already being gone (closed by hand via the GUI, or a retried
+        teardown after a previous partial failure) - Proxmox returns a 500
+        with a missing-config message rather than a 404, and that is treated
+        as already-torn-down rather than an error.
+    """
+    from proxmoxer.tools import Tasks
+
+    if not instance_exists(vmid, node):
+        return
+    proxmox = _connect()
+    try:
+        task = proxmox.nodes(node).qemu(vmid).status.stop.post()
+        Tasks.blocking_status(proxmox, task)
         proxmox.nodes(node).qemu(vmid).delete()
     except Exception as exc:
         raise ProxmoxError(f"Proxmox refused the teardown: {exc}") from exc

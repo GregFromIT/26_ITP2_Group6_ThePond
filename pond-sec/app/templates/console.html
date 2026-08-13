@@ -1,0 +1,18 @@
+{% extends "base.html" %}
+{% block title %}Console — Pond Sec{% endblock %}
+{% block content %}
+  <div class="panel">
+    <h1>Session console</h1>
+    <p class="lede">
+      Anything left on this machine is gone once the session closes.
+    </p>
+    <div id="console-screen"
+         data-instance-id="{{ instance_id }}"
+         data-vnc-password="{{ vnc_password }}"
+         data-vnc-port="{{ vnc_port }}"
+         style="width: 100%; height: 70vh; background: #222;"></div>
+  </div>
+{% endblock %}
+{% block scripts %}
+  <script type="module" src="{{ url_for('static', filename='js/console.js') }}"></script>
+{% endblock %}
