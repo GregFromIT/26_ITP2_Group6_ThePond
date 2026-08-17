@@ -1,1 +1,1 @@
-print("OW!")
+print("Megan says: OW!")
