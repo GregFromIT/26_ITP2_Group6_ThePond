@@ -46,6 +46,11 @@ VMS = [
     ("forensics-lin", "pve", 9202, 2, 4096, "Linux host with deleted artefacts"),
     ("web-dvwa", "pve", 9301, 2, 2048, "Deliberately vulnerable web stack"),
     ("web-api", "pve", 9302, 2, 2048, "REST API with broken access control"),
+    # Real, working template -- built and confirmed bootable on pve at vmid 900,
+    # unlike everything above which is still a placeholder vmid.
+    ("metasploitable2", "pve", 900, 2, 2048,
+     "Metasploitable 2 -- vsftpd 2.3.4 backdoor (port 21) is the intended entry, "
+     "not the well-documented default SSH creds"),
 ] # change to vars/challenges
 
 THEMES = [
@@ -97,7 +102,33 @@ THEMES = [
             ("Chain", "Three small defects add up to an account takeover.", "Hard", 5),
         ],
     },
+    {
+        "name": "Boot2Root",
+        "category": "general",
+        "summary": "Classic single-target boxes. Enumerate every service, find the "
+                   "intended way in, get root.",
+        "weighting": 1.0,
+        "tile": None,  # TODO: no tile SVG made yet -- add one to app/static/img/
+        "challenges": [
+            ("Metasploitable 2",
+             "A deliberately vulnerable Linux box exposing 20+ services. The default "
+             "SSH login is well documented online -- using it skips the point of this "
+             "challenge. Find the actual intended way in.", "Entry", 6),
+        ],
+    },
 ]
+
+# Per-theme flag overrides. FLAG_SETS below is shared BY POSITION across every
+# theme (challenge #1 in any theme pulls FLAG_SETS[0], regardless of theme) --
+# see the FLAGS docstring above. A theme listed here uses its own flag list
+# instead, indexed the same way (position - 1), so it never collides with
+# another theme's identically-numbered challenge. Doesn't change behaviour for
+# any theme not listed here.
+THEME_FLAG_OVERRIDES = {
+    "Boot2Root": [
+        [("Root flag", "pond{msf2_vsftpd_backdoor_root}", 100)],  # challenge 1
+    ],
+}
 
 FLAG_SETS = [
     [("First flag", "flag{challenge_one_entry}", 50), ("Bonus flag", "flag{challenge_one_bonus}", 25)],
@@ -165,7 +196,8 @@ def seed():
                 (theme_id, number, name, brief, difficulty, vm_ids[vm_index], spec["tile"]),
             )
             challenge_ids.append(challenge_id)
-            for label, flag, points in FLAG_SETS[number - 1]:
+            flag_set = THEME_FLAG_OVERRIDES.get(spec["name"], FLAG_SETS)[number - 1]
+            for label, flag, points in flag_set:
                 execute(
                     "INSERT INTO challenge_points "
                     "(challenge_id, theme_id, label, flag_hash, points) VALUES (?, ?, ?, ?, ?)",
