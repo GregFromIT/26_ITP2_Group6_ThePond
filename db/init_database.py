@@ -7,7 +7,10 @@ Usage:
 
     python -m db.init_database
 """
-
+import hashlib
+import yaml
+from pathlib import Path
+from db.throttle_models import ThrottleEvent
 from db.database_app import app
 from db.orm import db
 
@@ -19,6 +22,11 @@ from db.runtime_models import ChallengeInstance, VMInstance, InstanceJob
 from db.scoring_models import FlagSubmission, UserSolve
 from db.audit_models import AuditLog
 
+CHALLENGES_DIR = Path(__file__).parent.parent / "vars" / "challenges"
+DEFAULT_FLAG_POINTS = 100
+
+def _hash_flag(flag: str) -> str:
+        return hashlib.sha256(flag.strip().lower().encode()).hexdigest()
 
 def initialise_database():
     with app.app_context():
