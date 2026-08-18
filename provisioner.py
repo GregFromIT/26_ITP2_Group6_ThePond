@@ -12,17 +12,50 @@ committed - set it via the THEPOND_PROXMOX_TOKEN_SECRET env var (this replaces
 what group_vars/vault.yml held for Ansible).
 """
 
-import os
+iimport os
+from contextlib import contextmanager
+from dataclasses import dataclass
 from pathlib import Path
-
+ 
 import yaml
 from proxmoxer import ProxmoxAPI
 from proxmoxer.tools import Tasks
-from proxmoxer.core import ResourceException   
-
+from proxmoxer.core import ResourceException
+ 
+from db.database_app import app as _db_app
+from db.orm import db
+from db.runtime_models import VMInstance
+ 
 PROJECT_ROOT = Path(__file__).parent
 GROUP_VARS_PATH = PROJECT_ROOT / "group_vars" / "all.yml"
 TOKEN_SECRET_ENV = "THEPOND_PROXMOX_TOKEN_SECRET"
+DEFAULT_VMID_RANGE = (301, 399)
+
+class ProxmoxError(RuntimeError):
+    pass
+
+@dataclass
+class Clone:
+    vmid: int
+    node: str
+    console_url: str
+    status: str
+
+@dataclass
+class ConsoleTicket:
+    ticket: str
+    port: str
+
+@contextmanager
+def _db_context():
+        from flask import has_app_context
+ 
+    if has_app_context():
+        yield
+    else:
+        with _db_app.app_context():
+            yield
+
 
 
 def load_config() -> dict:
@@ -37,6 +70,15 @@ def get_client(config: dict) -> ProxmoxAPI:
             f"Set {TOKEN_SECRET_ENV} to the Proxmox API token secret "
             "(see group_vars/vault.yml.example for where this used to live)."
         )
+    if "proxmox_api_host" in config:
+        return ProxmoxAPI(
+            config["proxmox_api_host"],
+            user=config["proxmox_api_user"],
+            token_name=config["proxmox_api_token_id"],
+            token_value=token_secret,
+            verify_ssl=False,
+        )
+    user, _, token_name = config["PROXMOX_TOKEN_ID"].partition("!")
     return ProxmoxAPI(
         config["proxmox_api_host"],
         user=config["proxmox_api_user"],
@@ -82,10 +124,33 @@ def create_instance(
     Tasks.blocking_status(client, task, timeout=timeout)
     client.nodes(node).qemu(vmid).status.start.post()
 
+def next_free_vmid(client: ProxmoxAPI, node: str, start: int = DEFAULT_VMID_RANGE[0],
+                    end: int = DEFAULT_VMID_RANGE[1], extra_used: frozenset = frozenset()) -> int:
+        proxmox_used = {vm["vmid"] for vm in client.nodes(node).qemu.get()}
+    proxmox_used |= {ct["vmid"] for ct in client.nodes(node).lxc.get()}
+ 
+    with _db_context():
+        ledger_used = {
+            row.proxmox_vmid
+            for row in db.session.query(VMInstance.proxmox_vmid)
+            .filter(VMInstance.deleted_at.is_(None))
+            .all()
+        }
+ 
+    used = proxmox_used | ledger_used | set(extra_used)
+    for vmid in range(start, end + 1):
+        if vmid not in used:
+            return vmid
+    raise RuntimeError(f"no free VMIDs in range {start}-{end}")
+
 
 def get_console_ticket(client: ProxmoxAPI, node: str, vmid: int) -> dict:
     """One-time VNC ticket + port for the noVNC console proxy."""
     return client.nodes(node).qemu(vmid).vncproxy.post(websocket=1)
+
+def web_console_ticket(client: ProxmoxAPI, node: str, vmid: int) -> ConsoleTicket:
+    result = get_console_ticket(client, node, vmid)
+    return ConsoleTicket(ticket=result["ticket"], port=result["port"])
 
 def instance_exists(client: ProxmoxAPI, node: str, vmid: int) -> bool:
     """Check a single VM directly via its status endpoint, rather than
@@ -117,3 +182,60 @@ def destroy_instance(client: ProxmoxAPI, node: str, vmid: int, timeout: int = 60
 
 def check_flag(submitted: str, expected: str) -> bool:
     return submitted.strip() == expected.strip()
+
+def _get_console_url(node: str, vmid: int, host: str | None = None) -> str:
+    host = host or (yaml.safe_load(open(GROUP_VARS_PATH)).get("proxmox_api_host") if GROUP_VARS_PATH.exists() else "pve")
+    return f"https://{host}:8006/?console=kvm&novnc=1&vmid={vmid}&node={node}"
+
+def clone_and_start(
+    client: ProxmoxAPI,
+    template_vmid: int,
+    node: str,
+    label: str = "challenge",
+    full_clone: bool = False,
+    storage: str | None = None,
+    vmid_range: tuple[int, int] = DEFAULT_VMID_RANGE,
+    *,
+    instance_id: int,
+    template_id: int,
+) -> Clone:
+        vmid = next_free_vmid(client, node, *vmid_range)
+    options = {"newid": vmid, "name": label[:63], "full": 1 if full_clone else 0, "target": node}
+    if full_clone:
+        options["storage"] = storage
+    try:
+        task = client.nodes(node).qemu(template_vmid).clone.post(**options)
+        Tasks.blocking_status(client, task)
+        client.nodes(node).qemu(vmid).status.start.post()
+    except Exception as exc:
+        raise ProxmoxError(f"Proxmox refused the clone: {exc}") from exc
+    clone = Clone(vmid=vmid, node=node, console_url=_console_url(node, vmid), status="running")
+ 
+    with _db_context():
+        db.session.add(VMInstance(
+            instance_id=instance_id,
+            template_id=template_id,
+            proxmox_vmid=clone.vmid,
+            proxmox_node=node,
+            hostname=label,
+            status="running",
+        ))
+        db.session.commit()
+    return clone
+
+def stop_and_destroy(client: ProxmoxAPI, vmid: int, node: str) -> None:
+    destroy_instance(client, node, vmid)
+ 
+    with _db_context():
+        row = (
+            db.session.query(VMInstance)
+            .filter(VMInstance.proxmox_vmid == vmid, VMInstance.deleted_at.is_(None))
+            .one_or_none()
+        )
+        if row is not None:
+            from datetime import datetime, timezone
+            now = datetime.now(timezone.utc)
+            row.stopped_at = now
+            row.deleted_at = now
+            row.status = "destroyed"
+            db.session.commit()
