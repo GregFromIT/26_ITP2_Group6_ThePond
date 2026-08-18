@@ -4,7 +4,9 @@ Start here. create_app() is the only place the pieces are wired together, so
 this file is the map of the codebase:
 
     config.py      settings, all environment-overridable
-    db.py          SQLite connections, init-db / seed-db commands
+    identity.py    User/UserCredential/Role read/write, dict-shaped for
+                  templates - the boundary between the real schema and
+                  everything downstream of g.user
     csrf.py        per-session CSRF tokens (enforced on every unsafe request)
     auth.py        /register /login /logout /forgot-password /reset-password
     roles.py       who may do what — the whole access policy, in one matrix
@@ -34,11 +36,18 @@ that ordering in mind.
 import os
 import secrets
 import stat
+import sys
+from pathlib import Path
 from datetime import datetime, timedelta, timezone
 
 from flask import Flask, current_app, redirect, render_template, request, session
 from werkzeug.middleware.proxy_fix import ProxyFix
 
+_REPO_ROOT = Path(__file__).resolve().parents[2]
+if str(_REPO_ROOT) not in sys.path:
+    sys.path.insert(0, str(_REPO_ROOT))
+from db.orm import db as sqla_db  # noqa: E402
+ 
 from . import admin, audit, auth, csrf, dashboard, db, roles, themes
 from .config import Config
 
@@ -57,10 +66,6 @@ def create_app(test_config=None):
 
     os.makedirs(app.instance_path, exist_ok=True)
 
-    database = app.config["DATABASE"]
-    if not os.path.isabs(database):
-        app.config["DATABASE"] = os.path.join(app.root_path, "..", database)
-
     app.config["SECRET_KEY"] = resolve_secret_key(app)
 
     if app.config["TRUSTED_PROXIES"]:
@@ -73,7 +78,9 @@ def create_app(test_config=None):
             x_host=app.config["TRUSTED_PROXIES"],
         )
 
-    db.init_app(app)
+    app.config.setdefault("SQLALCHEMY_BINDS", {"pond": f"sqlite:///{_REPO_ROOT / 'the_pond.db'}"})
+    app.config.setdefault("SQLALCHEMY_TRACK_MODIFICATIONS", False)
+    sqla_db.init_app(app)
     csrf.init_app(app)
     roles.init_app(app)      # exposes can() to templates
     admin.init_app(app)      # registers the set-role CLI command
@@ -257,13 +264,14 @@ def register_filters(app):
     """
     @app.template_filter("stamp")
     def stamp(value, fallback="—"):
-        """UTC string from SQLite to something readable."""
-        if not value:
-            return fallback
-        try:
-            return datetime.strptime(value[:19], "%Y-%m-%d %H:%M:%S").strftime("%d %b %Y, %H:%M")
-        except ValueError:
-            return value
+       if not value:
+           return fallback
+       if isinstance(value, str):
+           try:
+               value = datetime.strptime(value[:19], "%Y-%m-%d %H:%M:%S")
+           except ValueError:
+               return value
+       return value.strftime("%d %b %Y, %H:%M")
 
     @app.template_filter("duration")
     def duration(seconds, fallback="—"):

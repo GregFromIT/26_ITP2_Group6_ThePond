@@ -71,7 +71,6 @@ class Config:
     # --- Proxmox ---------------------------------------------------------
     # Defaults are the project's own cluster. Everything is still overridable,
     # so a second cluster needs no code change.
-    PROXMOX_BACKEND = os.environ.get("PROXMOX_BACKEND", "simulate")
     PROXMOX_HOST = os.environ.get("PROXMOX_HOST", "10.1.21.151")
     PROXMOX_NODE = os.environ.get("PROXMOX_NODE", "pve")
 

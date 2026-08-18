@@ -34,7 +34,7 @@ from flask import (
 )
 
 from . import audit, csrf, throttle
-from .db import execute, query, utcnow
+from . import audit, csrf, identity, throttle
 from .security import (
     USERNAME_RE, clear_lockout, lockout_remaining, password_matches, password_problems,
     register_failure, set_password,
@@ -74,7 +74,7 @@ def load_logged_in_user():
     g.user = (
         None
         if user_id is None
-        else query("SELECT * FROM user WHERE user_id = ?", (user_id,), one=True)
+        else identity.get_user_row(user_id)
     )
     if user_id is not None and g.user is None:
         session.clear()
@@ -164,10 +164,7 @@ def register():
                 flash(message, "error")
             return render_template("register.html", form=form, uni_years=UNI_YEARS)
 
-        user_id = execute(
-            "INSERT INTO user (name, uni_year, username) VALUES (?, ?, ?)",
-            (form["name"], form["uni_year"], form["username"]),
-        )
+        user_id = identity.create_user(form["name"], form["uni_year"], form["username"])
         set_password(user_id, password)
         audit.record(audit.REGISTER, user_id=user_id, username=form["username"])
         flash("Account created. Sign in to start.", "success")
@@ -197,7 +194,7 @@ def login():
             flash(f"Too many sign-in attempts. Try again in {wait // 60 + 1} minutes.", "error")
             return render_template("login.html", username=username), 429
 
-        user = query("SELECT * FROM user WHERE username = ?", (username,), one=True)
+        user = identity.get_user_row_by_username(username)
 
         if user is None:
             audit.record(audit.LOGIN_FAIL, username=username, detail="no such account")
@@ -236,7 +233,7 @@ def login():
         clear_lockout(user["user_id"])
         throttle.clear("login_user", username.lower())
         throttle.clear("login_ip", source)
-        execute("UPDATE user SET last_login_at = ? WHERE user_id = ?", (utcnow(), user["user_id"]))
+        identity.touch_last_login(user["user_id"])
         audit.record(audit.LOGIN_OK, user_id=user["user_id"], username=username)
 
         # New session identity, new CSRF token: nothing survives the boundary.
