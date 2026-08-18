@@ -167,7 +167,7 @@ class VMInstance(db.Model):
     proxmox_vmid: Mapped[int] = mapped_column(
         Integer,
         nullable=False,
-        unique=True
+        index=True # changed from unique to allow vmid's to be reused
     )
 
     proxmox_node: Mapped[str] = mapped_column(
