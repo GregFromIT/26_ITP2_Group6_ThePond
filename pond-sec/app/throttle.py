@@ -11,8 +11,10 @@ from datetime import datetime, timedelta
 
 from flask import request
 
-from .db import execute, get_db, query
+from db.orm import db
+from db.throttle_models import ThrottleEvent
 from .security import fmt_ts
+
 
 # Every throttled action in one place, so the limits can be reviewed together
 # rather than hunted for across the views.
@@ -44,8 +46,8 @@ def client_ip() -> str:
     return request.remote_addr or "unknown"
 
 
-def _window_start(seconds: int) -> str:
-    return fmt_ts(datetime.utcnow() - timedelta(seconds=seconds))
+def _window_start(seconds: int) -> datetime:
+    return datetime.now(datetime.timezone.utc) - timedelta(seconds=seconds)
 
 
 def check(action: str, key: str):
@@ -55,24 +57,26 @@ def check(action: str, key: str):
     """
     limit, window = LIMITS[action]
     bucket = f"{action}:{key}"
+    since = _window_start(window)
 
-    row = query(
-        "SELECT COUNT(*) AS hits, MIN(occurred_at) AS oldest FROM throttle_event "
-        "WHERE bucket = ? AND occurred_at >= ?",
-        (bucket, _window_start(window)),
-        one=True,
-    )
-    if row["hits"] < limit:
+    hits = db.session.query(ThrottleEvent).filter(
+       ThrottleEvent.bucket == bucket, ThrottleEvent.occurred_at >= since
+   ).count()
+    
+    if hits < limit:
         return True, 0
 
-    oldest = datetime.strptime(row["oldest"][:19], "%Y-%m-%d %H:%M:%S")
-    wait = int((oldest + timedelta(seconds=window) - datetime.utcnow()).total_seconds())
+    oldest = db.session.query(db.func.min(ThrottleEvent.occurred_at)).filter(
+       ThrottleEvent.bucket == bucket, ThrottleEvent.occurred_at >= since
+   ).scalar()
+    
+    wait = int((oldest + timedelta(seconds=window) - datetime.now(datetime.timezone.utc)).total_seconds())
     return False, max(1, wait)
 
 
 def record(action: str, key: str):
-    """Count one attempt against the bucket."""
-    execute("INSERT INTO throttle_event (bucket) VALUES (?)", (f"{action}:{key}",))
+    db.session.add(ThrottleEvent(bucket=f"{action}:{key}"))
+    db.session.commit()
 
 
 def hit(action: str, key: str):
@@ -85,22 +89,12 @@ def hit(action: str, key: str):
 
 
 def clear(action: str, key: str):
-    """Wipe a bucket — used after a successful sign-in so an honest student who
-    fumbled a password is not still throttled."""
-    execute("DELETE FROM throttle_event WHERE bucket = ?", (f"{action}:{key}",))
+    db.session.query(ThrottleEvent).filter(ThrottleEvent.bucket == f"{action}:{key}").delete()
+    db.session.commit()
 
 
 def prune(older_than_seconds: int = 86400):
-    """Delete counters older than the longest window in use.
-
-    Nothing calls this yet. When the platform gets a scheduled job (for reaping
-    idle VMs, which is on the open list), hang this off it — otherwise
-    throttle_event grows forever. It is safe to run at any time: the windows are
-    all far shorter than the default 24 hours.
-    """
-    db = get_db()
-    db.execute(
-        "DELETE FROM throttle_event WHERE occurred_at < ?",
-        (_window_start(older_than_seconds),),
-    )
-    db.commit()
+   db.session.query(ThrottleEvent).filter(
+       ThrottleEvent.occurred_at < (datetime.now(datetime.timezone.utc) - timedelta(seconds=older_than_seconds))
+   ).delete()
+   db.session.commit()

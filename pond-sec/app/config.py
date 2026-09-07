@@ -61,7 +61,7 @@ class Config:
     TRUSTED_PROXIES = _int("TRUSTED_PROXIES", 0)
 
     # --- Database --------------------------------------------------------
-    DATABASE = os.environ.get("DATABASE_PATH", "instance/cyber_range.sqlite")
+    #DATABASE = os.environ.get("DATABASE_PATH", "instance/cyber_range.sqlite")
 
     # --- Account policy --------------------------------------------------
     MAX_LOGIN_ATTEMPTS = _int("MAX_LOGIN_ATTEMPTS", 3)

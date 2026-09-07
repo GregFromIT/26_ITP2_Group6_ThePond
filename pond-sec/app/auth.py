@@ -33,7 +33,6 @@ from flask import (
     Blueprint, current_app, flash, g, redirect, render_template, request, session, url_for
 )
 
-from . import audit, csrf, throttle
 from . import audit, csrf, identity, throttle
 from .security import (
     USERNAME_RE, clear_lockout, lockout_remaining, password_matches, password_problems,
@@ -156,7 +155,7 @@ def register():
 
         # A taken username is stated plainly: usernames are printed on the
         # leaderboards, so this reveals nothing that is not already public.
-        if query("SELECT 1 FROM user WHERE username = ?", (form["username"],), one=True):
+        if identity.username_taken(form["username"]):
             errors.append("That username is taken.")
 
         if errors:
