@@ -287,7 +287,7 @@ def close_session(instance_id):
     keeps every flag they had already captured, because those are already in the
     award ledger.
     """
-    from .challenges import _close   # imported here to avoid a circular import
+    from .themes import _close   # imported here to avoid a circular import
 
     instance = query(
         "SELECT ri.*, u.username FROM running_instance ri "

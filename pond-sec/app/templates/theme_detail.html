@@ -29,7 +29,7 @@
            src="{{ url_for('static', filename='img/' ~ (challenge['tile_image'] or 'tile-networking.svg')) }}"
            alt="">
       <div class="tile-body">
-        <p class="eyebrow">Challenge {{ challenge['challenge_number'] }} · {{ challenge['difficulty'] }}</p>
+        <p class="eyebrow">{{ challenge['difficulty'] }}</p>
         <h3>{{ challenge['name'] }}</h3>
         <p>{{ challenge['brief'] }}</p>
 
