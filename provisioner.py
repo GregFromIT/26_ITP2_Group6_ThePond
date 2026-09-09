@@ -12,7 +12,7 @@ committed - set it via the THEPOND_PROXMOX_TOKEN_SECRET env var (this replaces
 what group_vars/vault.yml held for Ansible).
 """
 
-iimport os
+import os
 from contextlib import contextmanager
 from dataclasses import dataclass
 from pathlib import Path
@@ -48,7 +48,7 @@ class ConsoleTicket:
 
 @contextmanager
 def _db_context():
-        from flask import has_app_context
+    from flask import has_app_context
  
     if has_app_context():
         yield
@@ -126,7 +126,7 @@ def create_instance(
 
 def next_free_vmid(client: ProxmoxAPI, node: str, start: int = DEFAULT_VMID_RANGE[0],
                     end: int = DEFAULT_VMID_RANGE[1], extra_used: frozenset = frozenset()) -> int:
-        proxmox_used = {vm["vmid"] for vm in client.nodes(node).qemu.get()}
+    proxmox_used = {vm["vmid"] for vm in client.nodes(node).qemu.get()}
     proxmox_used |= {ct["vmid"] for ct in client.nodes(node).lxc.get()}
  
     with _db_context():
@@ -199,7 +199,7 @@ def clone_and_start(
     instance_id: int,
     template_id: int,
 ) -> Clone:
-        vmid = next_free_vmid(client, node, *vmid_range)
+    vmid = next_free_vmid(client, node, *vmid_range)
     options = {"newid": vmid, "name": label[:63], "full": 1 if full_clone else 0, "target": node}
     if full_clone:
         options["storage"] = storage

@@ -47,64 +47,6 @@ def seed_challenges_from_yaml():
            challenge = db.session.execute(
                db.select(Challenge).filter_by(title=slug)
            ).scalar_one_or_none()
-
-           if challenge is None:
-               challenge = Challenge(
-                   title=slug,
-                   description=f"Seeded from vars/challenges/{path.name}",
-                   instructions="See the challenge brief for connection details.",
-                   category=cfg.get("category", "general"),
-                   difficulty=cfg.get("difficulty"),
-                   status="published",
-               )
-               db.session.add(challenge)
-               db.session.commit()
-               print(f"  + challenge: {slug}")
-
-           template_specs = cfg.get("vm_templates") or [{"name": cfg["vm_template"], "role": "target"}]
-
-           for spec in template_specs:
-               template_name = spec["name"] if isinstance(spec, dict) else spec
-               role = spec.get("role", "target") if isinstance(spec, dict) else "target"
-               template_vmid = provisioner._resolve_template_vmid(client, node, template_name)
-
-               template = db.session.execute(
-                   db.select(VMTemplate).filter_by(proxmox_template_vmid=template_vmid)
-               ).scalar_one_or_none()
-
-               if template is None:
-                   template = VMTemplate(
-                       challenge_id=challenge.challenge_id,
-                       template_name=template_name,
-                       proxmox_template_vmid=template_vmid,
-                       proxmox_node=node,
-                       vm_role=role,
-                   )
-
-                   db.session.add(template)
-                   db.session.commit()
-                   print(f"    + vm_template: {template_name} (vmid {template_vmid}, role={role})")
-
-               flag_plain = cfg.get("flag")
-                  def seed_challenges_from_yaml():
-       import provisioner
-
-       if not CHALLENGES_DIR.exists():
-           print(f"no challenges dir at {CHALLENGES_DIR}, skipping challenge seeding.")
-           return
-
-       config = provisioner.load_config()
-       client = provisioner.get_client(config)
-       node = config["proxmox_node"]
-
-       for path in sorted(CHALLENGES_DIR.glob("*.yml")):
-           with open(path) as f:
-               cfg = yaml.safe_load(f)
-           slug = cfg["challenge"]
-
-           challenge = db.session.execute(
-               db.select(Challenge).filter_by(title=slug)
-           ).scalar_one_or_none()
            if challenge is None:
                challenge = Challenge(
                    title=slug,
