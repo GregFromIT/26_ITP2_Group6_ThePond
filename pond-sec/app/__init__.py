@@ -48,7 +48,7 @@ if str(_REPO_ROOT) not in sys.path:
     sys.path.insert(0, str(_REPO_ROOT))
 from db.orm import db as sqla_db  # noqa: E402
  
-from . import admin, audit, auth, csrf, dashboard, db, roles, themes
+from . import admin, audit, auth, csrf, dashboard, roles, themes
 from .config import Config
 
 

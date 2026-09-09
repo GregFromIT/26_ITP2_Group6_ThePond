@@ -13,7 +13,6 @@ from flask import request
 
 from db.orm import db
 from db.throttle_models import ThrottleEvent
-from .security import fmt_ts
 
 
 # Every throttled action in one place, so the limits can be reviewed together
@@ -70,7 +69,7 @@ def check(action: str, key: str):
        ThrottleEvent.bucket == bucket, ThrottleEvent.occurred_at >= since
    ).scalar()
     
-    wait = int((oldest + timedelta(seconds=window) - datetime.now(datetime.timezone.utc)).total_seconds())
+    wait = int((oldest + timedelta(seconds=window) - datetime.utcnow()).total_seconds())
     return False, max(1, wait)
 
 

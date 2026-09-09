@@ -114,33 +114,32 @@
 
 <section class="board">
   <header class="board-head">
-    <h2>Theme scoreboard</h2>
-    <p class="hint">Points per challenge, then the theme weighting applied to the total.</p>
+    <h2>Category scoreboard</h2>
+    <p class="hint">Points per challenge in this category.</p>
   </header>
   <div class="table-wrap">
     <table class="grid">
       <thead>
         <tr>
           <th>Rank</th><th>User</th>
-          <th class="num">C1</th><th class="num">C2</th><th class="num">C3</th>
-          <th class="num">C4</th><th class="num">C5</th><th class="num">C6</th>
-          <th class="num">Total</th><th class="num">×</th><th class="num">Weighted</th>
+          {% for challenge_id, challenge_title in matrix['challenges'] %}
+          <th class="num" title="{{ challenge_title }}">{{ challenge_title[:12] }}</th>
+          {% endfor %}
+          <th class="num">Total</th>
         </tr>
       </thead>
       <tbody>
-        {% for row in matrix %}
+        {% for row in matrix['rows'] %}
         <tr {% if row['user_id'] == current_user['user_id'] %}class="is-you"{% endif %}>
           <td class="mono rank">{{ '%02d' % row['rank'] }}</td>
           <td>{{ row['username'] }}{% if row['user_id'] == current_user['user_id'] %} <span class="tag">you</span>{% endif %}</td>
-          {% for key in ['c1','c2','c3','c4','c5','c6'] %}
-            <td class="mono num {% if not row[key] %}zero{% endif %}">{{ row[key] }}</td>
+          {% for challenge_id, challenge_title in matrix['challenges'] %}
+            <td class="mono num {% if not row['per_challenge'].get(challenge_id) %}zero{% endif %}">{{ row['per_challenge'].get(challenge_id, 0) }}</td>
           {% endfor %}
-          <td class="mono num">{{ row['raw_total'] }}</td>
-          <td class="mono num soft">{{ '%.1f'|format(row['weighting']) }}</td>
           <td class="mono num strong">{{ row['score'] }}</td>
         </tr>
         {% else %}
-        <tr><td colspan="11" class="empty">No scores in this theme yet.</td></tr>
+        <tr><td colspan="{{ 3 + matrix['challenges']|length }}" class="empty">No scores in this category yet.</td></tr>
         {% endfor %}
       </tbody>
     </table>
