@@ -5,3 +5,4 @@ vmid_range_start: 1101
 vmid_range_end: 1199
 default_ttl_hours: 3
 flag: "pond{test}"
+points:100
