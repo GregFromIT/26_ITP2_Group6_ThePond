@@ -46,7 +46,7 @@ def client_ip() -> str:
 
 
 def _window_start(seconds: int) -> datetime:
-    return datetime.now(datetime.timezone.utc) - timedelta(seconds=seconds)
+    return datetime.utcnow() - timedelta(seconds=seconds)
 
 
 def check(action: str, key: str):
@@ -94,6 +94,6 @@ def clear(action: str, key: str):
 
 def prune(older_than_seconds: int = 86400):
    db.session.query(ThrottleEvent).filter(
-       ThrottleEvent.occurred_at < (datetime.now(datetime.timezone.utc) - timedelta(seconds=older_than_seconds))
+        ThrottleEvent.occurred_at < (datetime.utcnow() - timedelta(seconds=older_than_seconds))
    ).delete()
    db.session.commit()
