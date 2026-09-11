@@ -13,6 +13,7 @@ what group_vars/vault.yml held for Ansible).
 """
 
 import os
+import re
 from contextlib import contextmanager
 from dataclasses import dataclass
 from pathlib import Path
@@ -21,6 +22,7 @@ import yaml
 from proxmoxer import ProxmoxAPI
 from proxmoxer.tools import Tasks
 from proxmoxer.core import ResourceException
+from sqlalchemy.exc import IntegrityError
  
 from db.database_app import app as _db_app
 from db.orm import db
@@ -143,6 +145,109 @@ def next_free_vmid(client: ProxmoxAPI, node: str, start: int = DEFAULT_VMID_RANG
             return vmid
     raise RuntimeError(f"no free VMIDs in range {start}-{end}")
 
+def claim_vmid(
+    client: ProxmoxAPI,
+    node: str,
+    instance_id: int,
+    template_id: int,
+    start: int = DEFAULT_VMID_RANGE[0],
+    end: int = DEFAULT_VMID_RANGE[1],
+) -> VMInstance:
+    """Atomically reserve a free vmid by inserting a real VMInstance row for
+    it (status='reserving'), inside the same transaction that proves the
+    reservation. next_free_vmid()'s check-then-act pattern has a gap
+    between "ask what's free" and "write down that I'm taking it" - the
+    partial unique index on (proxmox_vmid WHERE deleted_at IS NULL) is what
+    actually closes that gap; this function's job is only to retry the next
+    candidate when a collision happens, not to prevent the race itself.
+
+    instance_id/template_id are required up front, not filled in after the
+    fact, because VMInstance.instance_id/.template_id are NOT NULL foreign
+    keys - there is no valid placeholder-row state with them left unset.
+    """
+    proxmox_used = {vm["vmid"] for vm in client.nodes(node).qemu.get()}
+    proxmox_used |= {ct["vmid"] for ct in client.nodes(node).lxc.get()}
+
+    with _db_context():
+        ledger_used = {
+            row.proxmox_vmid
+            for row in db.session.query(VMInstance.proxmox_vmid)
+            .filter(VMInstance.deleted_at.is_(None)).all()
+        }
+        used_hint = proxmox_used | ledger_used
+
+        for candidate in range(start, end + 1):
+            if candidate in used_hint:
+                continue
+            row = VMInstance(
+                instance_id=instance_id,
+                template_id=template_id,
+                proxmox_vmid=candidate,
+                proxmox_node=node,
+                status="reserving",
+            )
+            db.session.add(row)
+            try:
+                db.session.commit()
+                return row
+            except IntegrityError:
+                db.session.rollback()
+                continue
+    raise RuntimeError(f"no free VMIDs in range {start}-{end}")
+
+VNET_ZONE = "pondz"  # created once, by hand - see Phase 0. Not managed by this code.
+VNET_ID_RE = re.compile(r"^[a-z][a-z0-9]{0,7}$")  # SDN's own 8-char, lowercase-start rule
+
+
+def _session_vnet_name(instance_id: int) -> str:
+    """Deterministic, <=8-char VNet ID for one ChallengeInstance. Proxmox
+    SDN caps VNet IDs at 8 characters because the ID becomes a literal
+    Linux bridge interface name, with suffixes appended for VLAN/VXLAN
+    sub-devices, and has to stay inside the kernel's IFNAMSIZ limit -
+    confirmed on the Proxmox forum, not a GUI-only restriction."""
+    name = "s" + format(instance_id, "x")
+    if not VNET_ID_RE.match(name):
+        raise ValueError(f"generated vnet id {name!r} violates SDN's 8-char rule")
+    return name
+
+
+def create_session_vnet(client: ProxmoxAPI, instance_id: int) -> str:
+    """One isolated Simple-zone VNet per ChallengeInstance (session), not
+    per VM - every VM cloned into this session shares this same VNet, so
+    they can reach each other, while no VM outside this session's VNet has
+    any path in. No VLAN tag or Subnet needed: Simple-zone isolation comes
+    from the bridge itself, not from addressing - every session's clones
+    can safely reuse the same static IP because each session is its own
+    broadcast domain."""
+    vnet = _session_vnet_name(instance_id)
+    client.cluster.sdn.vnets.post(vnet=vnet, zone=VNET_ZONE)
+    client.cluster.sdn.put()  # equivalent to `pvesh set /cluster/sdn` - applies + reloads
+    return vnet
+
+
+def destroy_session_vnet(client: ProxmoxAPI, vnet: str) -> None:
+    client.cluster.sdn.vnets(vnet).delete()
+    client.cluster.sdn.put()
+
+
+def enable_vm_firewall(client: ProxmoxAPI, node: str, vmid: int) -> None:
+    """Deny-by-default inbound posture for one VM. Must be paired with
+    firewall=1 on that VM's net0 line (done in clone_and_start's net0
+    rewrite below) - enabling the VM-level firewall alone does nothing if
+    the NIC itself doesn't have filtering turned on; Proxmox raises no
+    error for that mismatch; it just silently doesn't enforce."""
+    client.nodes(node).qemu(vmid).firewall.options.put(enable=1, policy_in="DROP")
+
+
+def apply_network_rule(
+    client: ProxmoxAPI, node: str, dest_vmid: int,
+    source_ip: str, port: int, proto: str = "tcp",
+) -> None:
+    """One inbound allow rule on the DESTINATION vm - the resource being
+    protected owns the rule that lets someone in, not the source."""
+    client.nodes(node).qemu(dest_vmid).firewall.rules.post(
+        type="in", action="ACCEPT", source=source_ip, dport=port, proto=proto,
+    )
 
 def get_console_ticket(client: ProxmoxAPI, node: str, vmid: int) -> dict:
     """One-time VNC ticket + port for the noVNC console proxy."""
@@ -198,32 +303,50 @@ def clone_and_start(
     *,
     instance_id: int,
     template_id: int,
+    vnet: str | None = None,
 ) -> Clone:
-    vmid = next_free_vmid(client, node, *vmid_range)
+    reserved = claim_vmid(client, node, instance_id, template_id, *vmid_range)
+    vmid = reserved.proxmox_vmid
     options = {"newid": vmid, "name": label[:63], "full": 1 if full_clone else 0, "target": node}
     if full_clone:
         options["storage"] = storage
     try:
         task = client.nodes(node).qemu(template_vmid).clone.post(**options)
         Tasks.blocking_status(client, task)
+
+        if vnet is not None:
+            current_net0 = client.nodes(node).qemu(vmid).config.get()["net0"]
+            new_net0 = re.sub(r"bridge=[^,]+", f"bridge={vnet}", current_net0)
+            new_net0 = re.sub(r",tag=\d+", "", new_net0)
+            if "firewall=1" not in new_net0:
+                new_net0 += ",firewall=1"
+            client.nodes(node).qemu(vmid).config.put(net0=new_net0)
+
         client.nodes(node).qemu(vmid).status.start.post()
     except Exception as exc:
+        with _db_context():
+            from datetime import datetime, timezone
+            row = db.session.get(VMInstance, reserved.vm_instance_id)
+            row.status = "error"
+            row.deleted_at = datetime.now(timezone.utc)
+            db.session.commit()
         raise ProxmoxError(f"Proxmox refused the clone: {exc}") from exc
-    clone = Clone(vmid=vmid, node=node, console_url=_console_url(node, vmid), status="running")
- 
+    
+    clone = Clone(vmid=vmid, node=node, console_url=_get_console_url(node, vmid), status="running")
+    
     with _db_context():
-        db.session.add(VMInstance(
-            instance_id=instance_id,
-            template_id=template_id,
-            proxmox_vmid=clone.vmid,
-            proxmox_node=node,
-            hostname=label,
-            status="running",
-        ))
+        from datetime import datetime, timezone
+        row = db.session.get(VMInstance, reserved.vm_instance_id)
+        row.hostname = label
+        row.status = "running"
+        row.started_at = datetime.now(timezone.utc)
         db.session.commit()
     return clone
 
-def stop_and_destroy(client: ProxmoxAPI, vmid: int, node: str) -> None:
+def stop_and_destroy(client: ProxmoxAPI, vmid: int, node: str, vnet: str | None = None) -> None:
+    """vnet: pass the session's vnet name only on the LAST VM being torn
+    down for that session - destroying it while sibling VMs in the same
+    session are still attached would sever their connectivity too."""
     destroy_instance(client, node, vmid)
  
     with _db_context():
@@ -239,3 +362,7 @@ def stop_and_destroy(client: ProxmoxAPI, vmid: int, node: str) -> None:
             row.deleted_at = now
             row.status = "destroyed"
             db.session.commit()
+        
+        if vnet is not None:
+            destroy_session_vnet(client, vnet)
+            

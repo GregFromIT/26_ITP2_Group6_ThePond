@@ -23,20 +23,20 @@ def _client():
 
 
 def clone_and_start(template_vmid: int, node: str = None, label: str = "challenge",
-                     *, instance_id: int, template_id: int) -> Clone:
+                     *, instance_id: int, template_id: int, vnet: str | None = None) -> Clone:
     cfg = current_app.config
     node = node or cfg["PROXMOX_NODE"]
     return _core.clone_and_start(
         _client(), template_vmid, node, label=label,
         full_clone=cfg["PROXMOX_FULL_CLONE"], storage=cfg["PROXMOX_STORAGE"],
-        instance_id=instance_id, template_id=template_id,
+        instance_id=instance_id, template_id=template_id, vnet=vnet,
     )
 
 
-def stop_and_destroy(vmid: int, node: str = None):
+def stop_and_destroy(vmid: int, node: str = None, vnet: str | None = None):
     cfg = current_app.config
     node = node or cfg["PROXMOX_NODE"]
-    _core.stop_and_destroy(_client(), vmid, node)
+    _core.stop_and_destroy(_client(), vmid, node, vnet=vnet)
 
 
 def get_console_ticket(vmid: int, node: str = None) -> ConsoleTicket:
@@ -44,4 +44,29 @@ def get_console_ticket(vmid: int, node: str = None) -> ConsoleTicket:
     try:
         return _core.web_console_ticket(_client(), node, vmid)
     except Exception as exc:
-        raise ProxmoxError(f"Proxmox refused the console ticket: {exc}") from exc   
+        raise ProxmoxError(f"Proxmox refused the console ticket: {exc}") from exc
+
+
+def create_session_vnet(instance_id: int) -> str:
+    """One VNet per ChallengeInstance (session) - call once in launch(),
+    before cloning any of that session's VMs, and pass the result as
+    vnet= to every clone_and_start() call for that session."""
+    return _core.create_session_vnet(_client(), instance_id)
+
+
+def destroy_session_vnet(vnet: str) -> None:
+    """Call only if you need this directly - normally pass vnet= to the
+    LAST stop_and_destroy() call for a session instead, which does this
+    for you after that VM is torn down."""
+    _core.destroy_session_vnet(_client(), vnet)
+
+
+def enable_vm_firewall(vmid: int, node: str = None) -> None:
+    node = node or current_app.config["PROXMOX_NODE"]
+    _core.enable_vm_firewall(_client(), node, vmid)
+
+
+def apply_network_rule(dest_vmid: int, source_ip: str, port: int,
+                        node: str = None, proto: str = "tcp") -> None:
+    node = node or current_app.config["PROXMOX_NODE"]
+    _core.apply_network_rule(_client(), node, dest_vmid, source_ip, port, proto)

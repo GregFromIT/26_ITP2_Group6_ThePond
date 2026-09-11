@@ -1,6 +1,8 @@
 ---
 challenge: "lockedshields"
-vm_template: "VM 1000"    # the Proxmox template this challenge clones from
+vm_templates:
+  - name: "VM 1000"
+    role: "target"
 vmid_range_start: 1101
 vmid_range_end: 1199
 default_ttl_hours: 3

@@ -64,13 +64,16 @@ from flask import (
 from flask_sock import Sock
 
 from db.orm import db
-from db.challenge_models import Challenge
+from db.challenge_models import Challenge, NetworkRule
 from db.VMs_models import ChallengeFlag, VMTemplate
 from db.runtime_models import ChallengeInstance, VMInstance
 
 from . import audit, throttle
 from .auth import login_required
-from .proxmox import ProxmoxError, clone_and_start, get_console_ticket, stop_and_destroy
+from .proxmox import (
+    ProxmoxError, apply_network_rule, clone_and_start, create_session_vnet,
+    destroy_session_vnet, enable_vm_firewall, get_console_ticket, stop_and_destroy,
+)
 from .scoring import (
     FLAG_HIT, FLAG_MISS, FLAG_REPEAT, category_challenge_matrix, category_leaderboard,
     challenge_progress, submit_flag,
@@ -314,13 +317,13 @@ def launch(challenge_id):
         )
         return redirect(_back(existing["theme_id"], existing["challenge_id"]))
 
-    template = (
+    templates = (
         db.session.query(VMTemplate)
         .filter_by(challenge_id=challenge_id, is_active=True, is_user_accessible=True)
         .order_by(VMTemplate.boot_order)
-        .first()
+        .all()
     )
-    if template is None:
+    if not templates:
         flash("No VM template is mapped to this challenge yet.", "error")
         return redirect(url_for("themes.detail", theme_id=category))
 
@@ -331,13 +334,40 @@ def launch(challenge_id):
     db.session.add(instance)
     db.session.commit()
 
-    label = f"{g.user['username']}-{challenge_id}"[:63]
+    # Only multi-VM challenges get a session VNet + per-VM firewall - a
+    # single-VM challenge behaves exactly as before (clone stays on its
+    # template's existing bridge, no isolation-layer changes), since there
+    # is no second VM in the session for isolation to matter against.
+    vnet = None
+    if len(templates) > 1:
+        vnet = create_session_vnet(instance.instance_id)
+        instance.network_identifier = vnet
+        db.session.commit()
+
+    label_base = f"{g.user['username']}-{challenge_id}"
+    clones = {}  # vm_role -> (Clone, VMTemplate) - lets network rules resolve role names later
     try:
-        clone = clone_and_start(
-            template.proxmox_template_vmid, template.proxmox_node, label,
-            instance_id=instance.instance_id, template_id=template.template_id,
-        )
+        for template in templates:
+            label = f"{label_base}-{template.vm_role}"[:63]
+            clone = clone_and_start(
+                template.proxmox_template_vmid, template.proxmox_node, label,
+                instance_id=instance.instance_id, template_id=template.template_id,
+                vnet=vnet,
+            )
+            clones[template.vm_role] = (clone, template)
     except ProxmoxError as exc:
+        # A half-launched multi-VM session is worse than a clean failure -
+        # tear down everything that DID start before reporting the error.
+        for clone, _ in clones.values():
+            try:
+                stop_and_destroy(clone.vmid, clone.node)
+            except ProxmoxError:
+                pass  # best-effort - already failing, do not mask the original error
+        if vnet is not None:
+            try:
+                destroy_session_vnet(vnet)
+            except ProxmoxError:
+                pass
         instance.status = "abandoned"
         instance.error_message = str(exc)
         instance.stopped_at = datetime.utcnow()
@@ -345,11 +375,24 @@ def launch(challenge_id):
         flash(f"The hypervisor could not start this challenge: {exc}", "error")
         return redirect(url_for("themes.detail", theme_id=category))
 
+    if len(clones) > 1:
+        rules = db.session.query(NetworkRule).filter_by(challenge_id=challenge_id).all()
+        for clone, _ in clones.values():
+            enable_vm_firewall(clone.vmid, clone.node)
+        for rule in rules:
+            if rule.from_role not in clones or rule.to_role not in clones:
+                continue  # a rule referencing a role this challenge doesn't have - skip, don't crash launch
+            source_ip = clones[rule.from_role][1].static_ip
+            if not source_ip:
+                continue  # can't write a rule without a known source address
+            dest_clone, _ = clones[rule.to_role]
+            apply_network_rule(dest_clone.vmid, source_ip, rule.port, dest_clone.node, rule.protocol)
+
     audit.record(
         audit.INSTANCE_LAUNCH,
         user_id=g.user["user_id"],
         username=g.user["username"],
-        detail=f"challenge {challenge_id}, vmid {clone.vmid}",
+        detail=f"challenge {challenge_id}, vmids {[c.vmid for c, _ in clones.values()]}",
     )
     return redirect(_back(category, challenge_id))
 
@@ -530,7 +573,8 @@ def timer(instance_id):
 
 
 def _close(instance_id: int, status: str):
-    """Stop the clock, record the outcome and tear the VM down.
+    """Stop the clock, record the outcome and tear every VM in the session
+    down.
 
     status is 'complete' or 'abandoned' - the only two outcomes the spec asks
     for. Called from three places: the close() route, automatically from
@@ -544,13 +588,21 @@ def _close(instance_id: int, status: str):
     to "tidy up first". stop_and_destroy() itself marks VMInstance
     deleted_at/status='destroyed' on success - this function only has to
     handle the failure case.
+
+    The session's VNet (instance.network_identifier, set in launch() only
+    for multi-VM challenges) is torn down only once, attached to the LAST
+    VM's stop_and_destroy() call - destroying it while sibling VMs in the
+    same session are still attached would sever their connectivity too. If
+    that last teardown itself fails, the VNet is left orphaned rather than
+    destroyed underneath a VM that might still be running - an orphaned
+    VNet needs manual cleanup, which is the safer failure than the reverse.
     """
     instance = db.session.get(ChallengeInstance, instance_id)
-    vm = (
+    vms = (
         db.session.query(VMInstance)
         .filter(VMInstance.instance_id == instance_id, VMInstance.deleted_at.is_(None))
-        .order_by(VMInstance.created_at.desc())
-        .first()
+        .order_by(VMInstance.created_at.asc())
+        .all()
     )
     now = datetime.utcnow()
     duration = max(0, int((now - instance.started_at).total_seconds()))
@@ -567,9 +619,13 @@ def _close(instance_id: int, status: str):
         detail=f"instance {instance_id}, {status}, {duration}s",
     )
 
-    if vm is not None and vm.proxmox_vmid:
+    vnet = instance.network_identifier
+    for i, vm in enumerate(vms):
+        if not vm.proxmox_vmid:
+            continue
+        is_last = (i == len(vms) - 1)
         try:
-            stop_and_destroy(vm.proxmox_vmid, vm.proxmox_node)
+            stop_and_destroy(vm.proxmox_vmid, vm.proxmox_node, vnet=vnet if is_last else None)
         except ProxmoxError as exc:
             vm.status = "error"
             db.session.commit()

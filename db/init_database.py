@@ -16,7 +16,7 @@ from db.orm import db
 
 # Import every model so SQLAlchemy knows about every table.
 from db.user_models import Role, User, UserCredential
-from db.challenge_models import Challenge
+from db.challenge_models import Challenge, NetworkRule
 from db.VMs_models import VMTemplate, ChallengeFlag
 from db.runtime_models import ChallengeInstance, VMInstance, InstanceJob
 from db.scoring_models import FlagSubmission, UserSolve
@@ -64,6 +64,7 @@ def seed_challenges_from_yaml():
            for spec in template_specs:
                template_name = spec["name"] if isinstance(spec, dict) else spec
                role = spec.get("role", "target") if isinstance(spec, dict) else "target"
+               static_ip = spec.get("static_ip") if isinstance(spec, dict) else None
                template_vmid = provisioner._resolve_template_vmid(client, node, template_name)
 
                template = db.session.execute(
@@ -76,6 +77,7 @@ def seed_challenges_from_yaml():
                        proxmox_template_vmid=template_vmid,
                        proxmox_node=node,
                        vm_role=role,
+                       static_ip=static_ip,
                    )
                    db.session.add(template)
                    db.session.commit()
@@ -102,6 +104,25 @@ def seed_challenges_from_yaml():
                         ))
                         db.session.commit()
                         print(f"    + flag for {template_name}")
+
+           for rule in cfg.get("network_rules", []):
+               existing_rule = db.session.execute(
+                   db.select(NetworkRule).filter_by(
+                       challenge_id=challenge.challenge_id,
+                       from_role=rule["from"], to_role=rule["to"], port=rule["port"],
+                   )
+               ).scalar_one_or_none()
+               if existing_rule is None:
+                   db.session.add(NetworkRule(
+                       challenge_id=challenge.challenge_id,
+                       from_role=rule["from"],
+                       to_role=rule["to"],
+                       protocol=rule.get("protocol", "tcp"),
+                       port=rule["port"],
+                   ))
+                   db.session.commit()
+                   print(f"    + network_rule: {rule['from']} -> {rule['to']}:{rule['port']}")
+
 
 
 def initialise_database():

@@ -1,5 +1,7 @@
 challenge: "metasploitable2"
-vm_template: "metasploitable2"    # must match the Proxmox VM's `name` field for vmid 900 exactly
+vm_templates:
+  - name: "metasploitable2"
+    role: "target"
 vmid_range_start: 1201
 vmid_range_end: 1299
 default_ttl_hours: 3

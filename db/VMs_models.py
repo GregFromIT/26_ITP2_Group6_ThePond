@@ -89,6 +89,11 @@ class VMTemplate(db.Model):
         Integer,
         nullable=True
     )
+    
+    static_ip: Mapped[Optional[str]] = mapped_column(
+        String(45),
+        nullable=True
+    )
 
     boot_order: Mapped[int] = mapped_column(
         Integer,
@@ -187,3 +192,4 @@ class ChallengeFlag(db.Model):
     vm_template: Mapped["VMTemplate"] = relationship(
         back_populates="flags"
     )
+

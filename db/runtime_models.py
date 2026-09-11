@@ -34,7 +34,7 @@ vm_templates
 from datetime import datetime, timezone
 from typing import Optional
 
-from sqlalchemy import Boolean, DateTime, ForeignKey, Integer, String, Text
+from sqlalchemy import Boolean, DateTime, ForeignKey, Index, Integer, String, Text
 from sqlalchemy.orm import Mapped, mapped_column, relationship
 
 from db.orm import db
@@ -222,6 +222,13 @@ class VMInstance(db.Model):
     )
 
     vm_template: Mapped["VMTemplate"] = relationship()
+    
+Index(
+    "ix_vminstance_active_vmid",
+    VMInstance.proxmox_vmid,
+    unique=True,
+    sqlite_where=VMInstance.deleted_at.is_(None),
+    )
 
 
 class InstanceJob(db.Model):
