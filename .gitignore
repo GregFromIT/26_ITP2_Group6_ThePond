@@ -9,3 +9,4 @@ group_vars/secrets.txt
 instance/
 *.db
 .env
+debug.md

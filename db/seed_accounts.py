@@ -109,18 +109,74 @@ def seed_accounts(accounts, check_only=False):
         print(f"Done. Created {created} account(s). Existing accounts were skipped.")
     return created
 
+# db/seed_accounts.py — add after seed_accounts(), before debug_accounts()
+
+def reset_accounts(accounts, check_only=False):
+    """Issue each existing account in ACCOUNTS a fresh temporary password.
+
+    Skips usernames not yet in the database — run without --reset first to
+    create them. Does not touch role, display_name, or is_active.
+    """
+    reset = 0
+    for username, display_name, role_name in accounts:
+        user = db.session.execute(db.select(User).filter_by(username=username)).scalar_one_or_none()
+        if user is None:
+            print(f"SKIP {username}: not in database. Run seed_accounts without --reset to create it first.", flush=True)
+            continue
+        if check_only:
+            print(f"WOULD RESET {username} ({user.display_name})")
+            continue
+        temporary = issue_temporary_password(user.user_id)
+        reset += 1
+        print(f"RESET {username} | temporary password: {temporary}", flush=True)
+        print("  Password change required at first login. Copy the password now.", flush=True)
+
+    if check_only:
+        print("Check complete. No passwords reset.")
+    else:
+        print(f"Done. Reset {reset} account(s).")
+    return reset
+
+# db/seed_accounts.py — add this function, placed after seed_accounts(), before main()
+
+def debug_accounts(accounts):
+    """Report each ACCOUNTS entry's live DB state. Read-only — never writes."""
+    for username, display_name, role_name in accounts:
+        user = db.session.execute(db.select(User).filter_by(username=username)).scalar_one_or_none()
+        if user is None:
+            print(f"{username}: NOT IN DATABASE (next run would create as role={role_name})")
+            continue
+        cred = user.credentials
+        print(f"{username}:")
+        print(f"  display_name = {user.display_name!r}  (ACCOUNTS says {display_name!r})")
+        print(f"  role         = {user.role.role_name}  (ACCOUNTS says {role_name})")
+        print(f"  is_active    = {user.is_active}")
+        print(f"  last_login   = {user.last_login_at}")
+        if cred is None:
+            print("  credentials  = MISSING — cannot log in; needs the staff password-reset process")
+        else:
+            print(f"  must_change_password = {cred.must_change_password}")
+            print(f"  failed_login_count   = {cred.failed_login_count}")
+            print(f"  locked_until         = {cred.locked_until}")
+            print(f"  password_changed_at  = {cred.password_changed_at}")
 
 def main():
     parser = argparse.ArgumentParser(description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter)
-    parser.add_argument("--check", action="store_true", help="Check the schema and list planned accounts without creating them.")
+    parser.add_argument("--check", action="store_true", help="Preview only — combine with --debug or --reset, or use alone for seed_accounts's own preview.")
+    parser.add_argument("--debug", action="store_true", help="Print live DB state for every account in ACCOUNTS. Read-only.")
+    parser.add_argument("--reset", action="store_true", help="Issue existing accounts in ACCOUNTS a fresh temporary password.")
     args = parser.parse_args()
     app = create_app()
     with app.app_context():
         try:
-            seed_accounts(ACCOUNTS, check_only=args.check)
+            if args.debug:
+                debug_accounts(ACCOUNTS)
+            elif args.reset:
+                reset_accounts(ACCOUNTS, check_only=args.check)
+            else:
+                seed_accounts(ACCOUNTS, check_only=args.check)
         except (ValueError, RuntimeError) as error:
             parser.exit(1, f"Error: {error}\n")
-
 
 if __name__ == "__main__":
     main()

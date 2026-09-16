@@ -1,0 +1,23 @@
+# vars/challenges/dc1.yml
+challenge: "dc1"
+vm_templates:
+  - name: "Kali-attacker"
+    role: "attacker"
+    static_ip: "10.10.10.10"
+  - name: "DC-1"
+    role: "target"
+    static_ip: "10.10.10.20"
+network_rules:
+  - from: "attacker"
+    to: "target"
+    port: 80
+    protocol: "tcp"
+  - from: "attacker"
+    to: "target"
+    port: 22
+    protocol: "tcp"
+vmid_range_start: 1301
+vmid_range_end: 1399
+default_ttl_hours: 3
+flag: "pond{drupalgeddon2_root}"
+points: 300
