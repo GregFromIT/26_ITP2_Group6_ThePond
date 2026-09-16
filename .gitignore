@@ -4,6 +4,7 @@ __pycache__/
 .env
 .claude/
 db/*.db
+group_vars/secrets.txt
 
 instance/
 *.db

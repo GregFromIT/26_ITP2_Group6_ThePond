@@ -79,7 +79,7 @@ class Config:
     # least-privilege token before this runs for a cohort.
     PROXMOX_TOKEN_ID = os.environ.get("PROXMOX_TOKEN_ID", "root@pam!root")
     # No default, ever. The secret comes from the environment or nowhere.
-    PROXMOX_TOKEN_SECRET = os.environ.get("PROXMOX_TOKEN_SECRET")
+    PROXMOX_TOKEN_SECRET = os.environ.get("THEPOND_PROXMOX_TOKEN_SECRET")
 
     # Where clone disks land. Only consulted for full clones — a linked clone
     # shares the template's disk and inherits its storage.

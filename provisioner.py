@@ -82,9 +82,9 @@ def get_client(config: dict) -> ProxmoxAPI:
         )
     user, _, token_name = config["PROXMOX_TOKEN_ID"].partition("!")
     return ProxmoxAPI(
-        config["proxmox_api_host"],
-        user=config["proxmox_api_user"],
-        token_name=config["proxmox_api_token_id"],
+        config["PROXMOX_HOST"],
+        user=user,
+        token_name=token_name,
         token_value=token_secret,
         verify_ssl=False,
     )
