@@ -14,23 +14,27 @@ what group_vars/vault.yml held for Ansible).
 
 import os
 import re
+import shlex
 from contextlib import contextmanager
 from dataclasses import dataclass
 from pathlib import Path
- 
+
+import paramiko
 import yaml
 from proxmoxer import ProxmoxAPI
 from proxmoxer.tools import Tasks
 from proxmoxer.core import ResourceException
 from sqlalchemy.exc import IntegrityError
- 
+
 from db.database_app import app as _db_app
 from db.orm import db
 from db.runtime_models import VMInstance
- 
+
 PROJECT_ROOT = Path(__file__).parent
 GROUP_VARS_PATH = PROJECT_ROOT / "group_vars" / "all.yml"
 TOKEN_SECRET_ENV = "THEPOND_PROXMOX_TOKEN_SECRET"
+SSH_KEY_ENV = "THEPOND_PROXMOX_SSH_KEY"  # mirrors TOKEN_SECRET_ENV's pattern - path to a private key, not committed
+DEFAULT_SSH_USER = "root"
 DEFAULT_VMID_RANGE = (301, 399)
 
 class ProxmoxError(RuntimeError):
@@ -51,7 +55,7 @@ class ConsoleTicket:
 @contextmanager
 def _db_context():
     from flask import has_app_context
- 
+
     if has_app_context():
         yield
     else:
@@ -130,7 +134,7 @@ def next_free_vmid(client: ProxmoxAPI, node: str, start: int = DEFAULT_VMID_RANG
                     end: int = DEFAULT_VMID_RANGE[1], extra_used: frozenset = frozenset()) -> int:
     proxmox_used = {vm["vmid"] for vm in client.nodes(node).qemu.get()}
     proxmox_used |= {ct["vmid"] for ct in client.nodes(node).lxc.get()}
- 
+
     with _db_context():
         ledger_used = {
             row.proxmox_vmid
@@ -138,7 +142,7 @@ def next_free_vmid(client: ProxmoxAPI, node: str, start: int = DEFAULT_VMID_RANG
             .filter(VMInstance.deleted_at.is_(None))
             .all()
         }
- 
+
     used = proxmox_used | ledger_used | set(extra_used)
     for vmid in range(start, end + 1):
         if vmid not in used:
@@ -292,6 +296,104 @@ def _get_console_url(node: str, vmid: int, host: str | None = None) -> str:
     host = host or (yaml.safe_load(open(GROUP_VARS_PATH)).get("proxmox_api_host") if GROUP_VARS_PATH.exists() else "pve")
     return f"https://{host}:8006/?console=kvm&novnc=1&vmid={vmid}&node={node}"
 
+
+# --------------------------------------------------------------- networking
+
+DISK_KEY_RE = re.compile(r"^(virtio|scsi|sata|ide)\d+$")
+
+
+def _find_disk_volid(client: ProxmoxAPI, node: str, vmid: int) -> str:
+    """Scans the VM's config for whichever disk-slot key it actually has
+    (sata0 confirmed on the DC-1 template; could be scsi0/virtio0 for
+    others) rather than assuming a fixed slot name - works for linked or
+    full clones since the key mirrors whatever the source template used."""
+    config = client.nodes(node).qemu(vmid).config.get()
+    for key, value in config.items():
+        if DISK_KEY_RE.match(key):
+            return value.split(":", 1)[1].split(",")[0]  # storage:volid,size=... -> volid
+    raise RuntimeError(f"no disk found in VM {vmid}'s config")
+
+
+def _ssh_client(host: str) -> paramiko.SSHClient:
+    key_path = os.environ.get(SSH_KEY_ENV)
+    if not key_path:
+        raise RuntimeError(f"Set {SSH_KEY_ENV} to an SSH private key path for the Proxmox host")
+    ssh = paramiko.SSHClient()
+    ssh.set_missing_host_key_policy(paramiko.AutoAddPolicy())
+    ssh.connect(host, username=DEFAULT_SSH_USER, key_filename=key_path)
+    return ssh
+
+
+def inject_instance_network(
+    client: ProxmoxAPI, node: str, vmid: int, static_ip: str,
+    proxmox_host: str, netmask_bits: int = 24, vg_name: str = "pve",
+    gateway: str | None = None,
+) -> None:
+    """
+    Writes a static /etc/network/interfaces into a freshly-cloned VM's disk
+    while it's still offline, via libguestfs's virt-customize run remotely
+    over SSH (this codebase talks to Proxmox purely over the REST API -
+    group_vars/all.yml points at 10.1.21.151 - so there is no local
+    filesystem access to the LV from wherever this code runs; SSH is the
+    only path to a tool that needs to touch the block device directly).
+
+    Call this from clone_and_start() AFTER Tasks.blocking_status() confirms
+    the clone's disk exists, and BEFORE status.start.post() - virt-customize
+    requires the target to be shut down (libguestfs.org/virt-customize.1.html),
+    which is guaranteed at this point since the clone hasn't been started yet.
+
+    Runs once per CLONE rather than once per template: every session's
+    clones stay safe reusing the same static_ip regardless of which
+    session, per create_session_vnet()'s isolation (each session is its
+    own broadcast domain) - this just means a template nobody remembered
+    to pre-bake still works, at the cost of one SSH round-trip per launch.
+
+    gateway: pass this when the clone is NOT going onto an isolated
+    session VNet (i.e. launch()'s single-VM path, which stays on the
+    template's own flat/shared bridge per themes.py's `len(templates) > 1`
+    check) - without a route out, the guest can answer ARP (pure L2, no
+    routing involved) but any reply addressed back to a host on a
+    different segment silently never leaves. Confirmed exactly this
+    failure mode testing vmid 308 on 2026-09-16: ARP replied correctly,
+    ping got 100% loss, fixed immediately by adding this line - not a
+    virt-customize/SSH problem, a missing-route problem. Omit this when
+    vnet IS set (create_session_vnet()'s isolated segments have no router
+    at all - see that function's own docstring).
+    """
+    volid = _find_disk_volid(client, node, vmid)
+    disk_path = f"/dev/{vg_name}/{volid}"  # confirmed vg_name="pve" for every disk on this host via `lvs -o vg_name,lv_name`
+
+    gateway_line = f"    gateway {gateway}\n" if gateway else ""
+    interfaces_content = (
+        "# The loopback network interface\n"
+        "auto lo\n"
+        "iface lo inet loopback\n\n"
+        "# The primary network interface\n"
+        "allow-hotplug eth0\n"
+        "iface eth0 inet static\n"
+        f"    address {static_ip}/{netmask_bits}\n"
+        f"{gateway_line}"
+    )
+    remote_tmp = f"/tmp/interfaces-{vmid}"
+
+    ssh = _ssh_client(proxmox_host)
+    try:
+        sftp = ssh.open_sftp()
+        with sftp.file(remote_tmp, "w") as f:
+            f.write(interfaces_content)
+        sftp.close()
+
+        cmd = f"virt-customize -a {shlex.quote(disk_path)} --upload {shlex.quote(remote_tmp)}:/etc/network/interfaces"
+        _, stdout, stderr = ssh.exec_command(cmd)
+        if stdout.channel.recv_exit_status() != 0:
+            raise ProxmoxError(f"virt-customize failed for vmid {vmid}: {stderr.read().decode()}")
+    finally:
+        ssh.exec_command(f"rm -f {shlex.quote(remote_tmp)}")
+        ssh.close()
+
+
+# ------------------------------------------------------------------ clone
+
 def clone_and_start(
     client: ProxmoxAPI,
     template_vmid: int,
@@ -304,7 +406,30 @@ def clone_and_start(
     instance_id: int,
     template_id: int,
     vnet: str | None = None,
+    static_ip: str | None = None,
+    proxmox_host: str | None = None,
+    gateway: str | None = None,
 ) -> Clone:
+    """
+    static_ip/proxmox_host: pass both together to bake a static IP into
+    this clone's disk before boot (see inject_instance_network()). Sourced
+    at the call site from the launching challenge's VMTemplate.static_ip -
+    that field already exists in db/VMs_models.py and is already read
+    elsewhere (themes.py's firewall-rule logic), confirming one fixed IP
+    per template is the intended design, not per-clone allocation.
+
+    gateway: only meaningful when vnet is None (single-VM challenges,
+    which stay on the template's own flat/shared bridge - see
+    themes.py's `len(templates) > 1` check). When vnet IS set, the clone
+    lands on an isolated session VNet with no router at all
+    (create_session_vnet()'s own docstring), so a gateway is never
+    written regardless of what's passed here - forced below rather than
+    left to the caller to get right, since passing one there would write
+    a gateway line pointing at nothing.
+    """
+    if static_ip is not None and proxmox_host is None:
+        raise ValueError("proxmox_host is required when static_ip is set - inject_instance_network needs it to SSH in")
+
     reserved = claim_vmid(client, node, instance_id, template_id, *vmid_range)
     vmid = reserved.proxmox_vmid
     options = {"newid": vmid, "name": label[:63], "full": 1 if full_clone else 0, "target": node}
@@ -313,6 +438,10 @@ def clone_and_start(
     try:
         task = client.nodes(node).qemu(template_vmid).clone.post(**options)
         Tasks.blocking_status(client, task)
+
+        if static_ip is not None:
+            effective_gateway = gateway if vnet is None else None
+            inject_instance_network(client, node, vmid, static_ip, proxmox_host, gateway=effective_gateway)
 
         if vnet is not None:
             current_net0 = client.nodes(node).qemu(vmid).config.get()["net0"]
@@ -331,9 +460,9 @@ def clone_and_start(
             row.deleted_at = datetime.now(timezone.utc)
             db.session.commit()
         raise ProxmoxError(f"Proxmox refused the clone: {exc}") from exc
-    
+
     clone = Clone(vmid=vmid, node=node, console_url=_get_console_url(node, vmid), status="running")
-    
+
     with _db_context():
         from datetime import datetime, timezone
         row = db.session.get(VMInstance, reserved.vm_instance_id)
@@ -348,7 +477,7 @@ def stop_and_destroy(client: ProxmoxAPI, vmid: int, node: str, vnet: str | None 
     down for that session - destroying it while sibling VMs in the same
     session are still attached would sever their connectivity too."""
     destroy_instance(client, node, vmid)
- 
+
     with _db_context():
         row = (
             db.session.query(VMInstance)
@@ -362,7 +491,6 @@ def stop_and_destroy(client: ProxmoxAPI, vmid: int, node: str, vnet: str | None 
             row.deleted_at = now
             row.status = "destroyed"
             db.session.commit()
-        
+
         if vnet is not None:
             destroy_session_vnet(client, vnet)
-            

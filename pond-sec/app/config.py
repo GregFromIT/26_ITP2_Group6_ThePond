@@ -86,6 +86,16 @@ class Config:
     PROXMOX_STORAGE = os.environ.get("PROXMOX_STORAGE", "local-lvm")
     PROXMOX_FULL_CLONE = _bool("PROXMOX_FULL_CLONE", False)
 
+    # Gateway written into a single-VM challenge clone's static network
+    # config (see provisioner.inject_instance_network()'s gateway param).
+    # Only used for the no-vnet case - a multi-VM challenge's session VNet
+    # has no router at all (create_session_vnet()'s own docstring), so this
+    # is never written there regardless of what it's set to. Confirmed
+    # 10.1.20.1 is the real gateway for the flat lab VLAN by testing vmid
+    # 308 on 2026-09-16 - omitting it let a clone answer ARP but drop every
+    # reply, since it had no route out.
+    PROXMOX_LAB_GATEWAY = os.environ.get("PROXMOX_LAB_GATEWAY", "10.1.20.1")
+
     # A cluster on an IP address almost certainly has a self-signed certificate,
     # which fails verification. Either install the cluster CA on this host and
     # leave this on, or set PROXMOX_VERIFY_SSL=0 and understand that anyone on

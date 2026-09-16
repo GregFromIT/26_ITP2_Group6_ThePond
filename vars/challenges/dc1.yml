@@ -1,4 +1,3 @@
-# vars/challenges/dc1.yml
 challenge: "dc1"
 vm_templates:
   - name: "Kali-attacker"

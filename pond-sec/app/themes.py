@@ -353,6 +353,8 @@ def launch(challenge_id):
                 template.proxmox_template_vmid, template.proxmox_node, label,
                 instance_id=instance.instance_id, template_id=template.template_id,
                 vnet=vnet,
+                static_ip=template.static_ip,
+                gateway=current_app.config["PROXMOX_LAB_GATEWAY"] if vnet is None else None,
             )
             clones[template.vm_role] = (clone, template)
     except ProxmoxError as exc:

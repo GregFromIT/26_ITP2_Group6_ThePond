@@ -23,13 +23,32 @@ def _client():
 
 
 def clone_and_start(template_vmid: int, node: str = None, label: str = "challenge",
-                     *, instance_id: int, template_id: int, vnet: str | None = None) -> Clone:
+                     *, instance_id: int, template_id: int, vnet: str | None = None,
+                     static_ip: str | None = None, gateway: str | None = None) -> Clone:
+    """
+    static_ip: pass the launching challenge's VMTemplate.static_ip to bake
+    a static network config into this clone before boot (see provisioner's
+    inject_instance_network()). None skips it entirely - the clone boots
+    with whatever the template's own disk already has.
+
+    gateway: only meaningful when vnet is None (single-VM challenges,
+    which stay on the template's own flat/shared bridge). launch() decides
+    which case applies and should only pass a gateway in the no-vnet case -
+    provisioner.clone_and_start() drops it anyway if vnet is set, but don't
+    rely on that from here; pass it deliberately, not by default.
+
+    proxmox_host is not a parameter here - it's derived from
+    cfg["PROXMOX_HOST"] below, same source node already uses, so a caller
+    can't accidentally point the SSH injection step at the wrong cluster.
+    """
     cfg = current_app.config
     node = node or cfg["PROXMOX_NODE"]
+    proxmox_host = cfg["PROXMOX_HOST"] if static_ip is not None else None
     return _core.clone_and_start(
         _client(), template_vmid, node, label=label,
         full_clone=cfg["PROXMOX_FULL_CLONE"], storage=cfg["PROXMOX_STORAGE"],
         instance_id=instance_id, template_id=template_id, vnet=vnet,
+        static_ip=static_ip, proxmox_host=proxmox_host, gateway=gateway,
     )
 
 
