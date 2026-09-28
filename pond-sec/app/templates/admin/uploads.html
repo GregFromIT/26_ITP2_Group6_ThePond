@@ -1,0 +1,155 @@
+{% extends "base.html" %}
+{% block title %}VM uploads · Pond Sec{% endblock %}
+
+{% block content %}
+<header class="page-head">
+  <p class="eyebrow">Staff console</p>
+  <h1>VM image uploads</h1>
+  <p class="lede">Upload a VM image from your machine, or register a link to one, so it
+     can be catalogued before being turned into a Proxmox template. A pasted link is
+     downloaded and stored the same way a chosen file is.
+     {% if unchecked %}<strong>{{ unchecked }} not yet checked.</strong>{% endif %}</p>
+</header>
+
+<aside class="resume">
+  <span class="led led-live" aria-hidden="true"></span>
+  <p>All uploads require appropriate quarantine and sanitisation checks as this system
+     does not have any in place currently. Pasting a link also makes this server fetch
+     that address itself, which is a server-side request forgery risk — only paste links
+     you trust, and note that private and internal addresses are refused.</p>
+</aside>
+
+<section class="session-grid">
+  <article class="panel">
+    <h2>Upload an image</h2>
+    <form method="post" action="{{ url_for('uploads.upload') }}" enctype="multipart/form-data">
+      <input type="hidden" name="_csrf" value="{{ csrf_token() }}">
+
+      <label for="vm_file">VM file</label>
+      <input id="vm_file" name="vm_file" type="file" required
+             accept="{{ allowed|join(',') }}">
+      <p class="hint">Disk images only: {{ allowed|join(', ') }}. Up to {{ max_gb }} GB.</p>
+
+      <label for="display_name">Name</label>
+      <input id="display_name" name="display_name" placeholder="Leave blank to use the filename">
+
+      <label for="notes">Notes</label>
+      <input id="notes" name="notes" placeholder="What is on it, where it came from">
+
+      <button class="btn btn-solid btn-block" type="submit">Upload</button>
+      <p class="hint">Large files take a while and the page will sit waiting until the
+         upload finishes. Don't close the tab.</p>
+    </form>
+
+    <h3 class="panel-sub">Or upload from a link</h3>
+    <form method="post" action="{{ url_for('uploads.add_url') }}">
+      <input type="hidden" name="_csrf" value="{{ csrf_token() }}">
+
+      <label for="source_url">Image URL</label>
+      <input id="source_url" name="source_url" type="url" class="mono"
+             placeholder="https://example.org/images/base.qcow2" required>
+
+      <label for="url_name">Name</label>
+      <input id="url_name" name="display_name" placeholder="Leave blank to use the filename">
+
+      <label for="url_notes">Notes</label>
+      <input id="url_notes" name="notes" placeholder="What is on it, where it came from">
+
+      <button class="btn btn-outline btn-block" type="submit">Download and add</button>
+      <p class="hint">The server downloads the image and stores it exactly as if you had
+         picked the file yourself. Same formats and size limit. Large images take a while
+         — the page waits until the download finishes.</p>
+    </form>
+  </article>
+
+  <article class="panel">
+    <h2>Where files go</h2>
+    <dl class="kv">
+      <div><dt>Directory</dt><dd class="mono">{{ upload_path }}</dd></div>
+      <div><dt>Size limit</dt><dd class="mono">{{ max_gb }} GB</dd></div>
+      <div><dt>Catalogue</dt><dd class="mono">the_pond.db · vm_uploads</dd></div>
+    </dl>
+    <p class="hint">Each file is saved under a generated name, never the one the browser
+       supplied, and a SHA-256 of the contents is recorded so it can be checked later.
+       The directory is not served over the web.</p>
+
+    <h3 class="panel-sub">Status labels</h3>
+    <ul class="flag-list">
+      <li><span class="led led-live" aria-hidden="true"></span><span>new — nobody has looked at it</span></li>
+      <li><span class="led led-done" aria-hidden="true"></span><span>checked — quarantine and sanitisation done</span></li>
+      <li><span class="led led-off" aria-hidden="true"></span><span>rejected — do not use</span></li>
+    </ul>
+    <p class="hint">These are notes between staff. Nothing in the platform behaves
+       differently based on them.</p>
+  </article>
+</section>
+
+<section class="board">
+  <header class="board-head">
+    <h2>Images</h2>
+    <p class="hint">Newest first.</p>
+  </header>
+  <div class="table-wrap">
+    <table class="grid">
+      <thead>
+        <tr><th>Name</th><th>Source</th><th class="num">Size</th><th>SHA-256</th>
+            <th>Added by</th><th>Last set by</th><th>Status</th><th></th></tr>
+      </thead>
+      <tbody>
+        {% for row in uploads %}
+        <tr {% if row.status == 'new' %}class="is-unchecked"{% endif %}>
+          <td>
+            {{ row.display_name }}
+            {% if row.format_mismatch %}
+              <span class="tag tag-warn" title="The contents look like {{ row.detected_format }}, which does not match the name">contents differ</span>
+            {% endif %}
+          </td>
+          <td class="soft">
+            {{ row.original_filename }}
+            {% if row.source == 'url' %}
+              · <a href="{{ row.source_url }}" rel="noopener noreferrer nofollow"
+                   target="_blank" title="{{ row.source_url }}">from link</a>
+            {% endif %}
+          </td>
+          <td class="mono num">{{ row.size_display }}</td>
+          <td class="mono soft" title="{{ row.sha256 }}">{{ row.sha256[:12] }}…</td>
+          <td>{{ row.uploaded_by_username }}</td>
+          <td class="soft">
+            {% if row.reviewed_by_username %}
+              {{ row.reviewed_by_username }}
+              <span class="mono soft">{{ row.reviewed_at.strftime('%d %b') }}</span>
+              {% if row.review_notes %}
+                <span class="tag" title="{{ row.review_notes }}">note</span>
+              {% endif %}
+            {% else %}—{% endif %}
+          </td>
+          <td><span class="status status-upload-{{ row.status }}">{{ row.status }}</span></td>
+          <td>
+            <div class="decision-cell">
+              <form method="post" action="{{ url_for('uploads.set_status', upload_id=row.upload_id) }}"
+                    class="status-form">
+                <input type="hidden" name="_csrf" value="{{ csrf_token() }}">
+                <select name="status" aria-label="Status for {{ row.display_name }}">
+                  {% for option in statuses %}
+                    <option value="{{ option }}" {% if row.status == option %}selected{% endif %}>{{ option }}</option>
+                  {% endfor %}
+                </select>
+                <input name="review_notes" placeholder="Note" class="review-note"
+                       aria-label="Note for {{ row.display_name }}">
+                <button class="btn btn-quiet" type="submit">Save</button>
+              </form>
+              <form method="post" action="{{ url_for('uploads.delete', upload_id=row.upload_id) }}">
+                <input type="hidden" name="_csrf" value="{{ csrf_token() }}">
+                <button class="btn btn-quiet" type="submit">Delete</button>
+              </form>
+            </div>
+          </td>
+        </tr>
+        {% else %}
+        <tr><td colspan="8" class="empty">Nothing uploaded yet.</td></tr>
+        {% endfor %}
+      </tbody>
+    </table>
+  </div>
+</section>
+{% endblock %}

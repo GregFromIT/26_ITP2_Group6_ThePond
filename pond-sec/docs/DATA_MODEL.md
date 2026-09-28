@@ -55,6 +55,15 @@ UPDATE user SET points = (
 exists so a typo in a future bit of code can't create an account holding a role
 nobody ever wrote permissions for.
 
+### `user` — approval columns
+`approval_status` is `pending`, `approved` or `rejected`, with a `CHECK`
+constraint so nothing else can be written. `approved_at` and `approved_by`
+record the decision, and `approved_by` is a self-reference to the administrator
+who made it.
+
+New rows default to `pending`. Seeded accounts are inserted as `approved`,
+otherwise every demo starts with nobody able to sign in.
+
 ### `password_manager`
 One row per user, holding only the hash and the algorithm. It's a separate table
 so that reading `user` never brings a password hash along with it, and so
@@ -138,6 +147,41 @@ instead of each getting a full one.
 
 Nothing prunes this yet. `throttle.prune()` exists but nothing calls it.
 
+## The SQLAlchemy side: `vm_uploads`
+
+Uploaded VM images live in a different database. `the_pond.db`, reached through
+SQLAlchemy (`app/orm.py`), with the same `pond` bind key the group's own model
+files use. Nothing joins across the two — the upload catalogue stands alone for
+now.
+
+One row per image. Both kinds have their bytes on disk; `source` only records
+how they got there:
+
+- `file` — the administrator chose the file from their own machine.
+- `url` — the administrator pasted a link and the server downloaded it.
+  `source_url` records the final URL, after any redirects.
+
+Either way `stored_name`, `size_bytes` and `sha256` are filled in.
+
+Both kinds carry the display name, the original filename as a label, who added
+it and when, and a status of `pending`, `ready` or `rejected`.
+
+`detected_format` records what the first bytes of an uploaded file looked like,
+and `format_mismatch` is set when that contradicts the extension. Null
+`detected_format` is normal rather than a problem: a raw image has no signature.
+
+`status` is `new`, `checked` or `rejected`, with `reviewed_by_username`,
+`reviewed_at` and `review_notes` recording who last set it and why. It is a
+label for staff and nothing else: no code path treats a `checked` image
+differently from a `new` one, because quarantine and sanitisation happen in
+Proxmox rather than in the platform.
+
+The file itself is never in the database, only the row describing it. The bytes
+sit in `instance/uploads` (or wherever `UPLOAD_DIR` points), outside anything
+the web server serves.
+
+Two database layers at once is not where this should end up. See the to-do list.
+
 ## The two views
 
 `leaderboard_overall` and `leaderboard_theme` both filter `role != 'admin'`, so
@@ -159,7 +203,10 @@ have to agree. Grep for `role != 'admin'` before changing eligibility.
       only. A partial unique index on `(user_id)` where `status = 'in_progress'`
       would make it structural.
 - [ ] **Nothing prunes `throttle_event` or `audit_log`.** Both grow forever.
-- [ ] **No backup story** for the SQLite file at all.
+- [ ] **No backup story** for the SQLite file at all, and now there are two of
+      them plus a directory of VM images.
+- [ ] **Two database layers.** `app/db.py` (raw sqlite3) and `app/orm.py` plus
+      `app/uploads.py` (SQLAlchemy). Deliberate for now, shouldn't stay.
 - [ ] **Scale.** SQLite is fine for a cohort. The first sign of outgrowing it is
       "database is locked" under load, and the fix is PostgreSQL. `app/db.py` is
       the only file that would need changing.

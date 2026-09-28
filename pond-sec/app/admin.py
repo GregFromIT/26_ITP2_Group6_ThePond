@@ -25,18 +25,11 @@ folded into an existing page.
 import click
 from flask import Blueprint, abort, flash, g, redirect, render_template, request, url_for
 
-from datetime import datetime, timedelta
-
-from db.orm import db
-from db.challenge_models import Challenge
-from db.runtime_models import ChallengeInstance, VMInstance
-from db.user_models import Role, User, UserCredential
-
 from . import audit, roles
+from .db import execute, query, utcnow
 from .roles import require
 from .security import clear_lockout, fmt_ts, issue_temporary_password
-from . import identity
-from .identity import ROLE_NAME_TO_DB, get_user_row
+from datetime import datetime, timedelta
 
 bp = Blueprint("admin", __name__, url_prefix="/admin")
 
@@ -45,10 +38,10 @@ AUDIT_PAGE_SIZE = 100
 
 def _target(user_id: int):
     """Load the account being acted on, or 404."""
-    row = get_user_row(user_id)
-    if row is None:
+    user = query("SELECT * FROM user WHERE user_id = ?", (user_id,), one=True)
+    if user is None:
         abort(404)
-    return row
+    return user
 
 
 def _may_act_on(target):
@@ -67,72 +60,120 @@ def _may_act_on(target):
 @bp.route("/")
 @require("view_admin_console")
 def console():
-        stats = {
-            "accounts": db.session.query(User).count(),
-            "moderators": db.session.query(User).join(Role).filter(Role.role_name == "manager").count(),
-            "admins": db.session.query(User).join(Role).filter(Role.role_name == "sysadmin").count(),
-            "locked": db.session.query(UserCredential).filter(UserCredential.locked_until.isnot(None)).count(),
-            "live_sessions": db.session.query(ChallengeInstance).filter_by(status="running").count(),
-            "live_vms": db.session.query(VMInstance).filter(
-                VMInstance.status == "running", VMInstance.deleted_at.is_(None)
-            ).count(),
-            "stuck_vms": db.session.query(VMInstance).filter(
-                VMInstance.status == "error", VMInstance.deleted_at.is_(None)
-            ).count(),
-        }
-
-        locked_users = (
-            db.session.query(User).join(UserCredential)
-            .filter(UserCredential.locked_until.isnot(None))
-            .order_by(UserCredential.locked_until.desc())
-            .limit(10).all()
-        )
-
-        locked = [
-            {
-            "user_id": u.user_id, "username": u.username, "name": u.display_name,
-            "locked_until": fmt_ts(u.credentials.locked_until), "failed_attempts": u.credentials.failed_login_count,
-            }
-            for u in locked_users
-        ]
-
-        live_rows = (
-            db.session.query(ChallengeInstance, User, Challenge)
-            .join(User, ChallengeInstance.user_id == User.user_id)
-            .join(Challenge, ChallengeInstance.challenge_id == Challenge.challenge_id)
-            .filter(ChallengeInstance.status == "running")
-            .order_by(ChallengeInstance.started_at)
-            .all()
-        )
-
-        live = []
-        for ci, u, challenge in live_rows:
-            vm = (
-                db.session.query(VMInstance)
-                .filter(VMInstance.instance_id == ci.instance_id, VMInstance.deleted_at.is_(None))
-                .order_by(VMInstance.created_at.desc()).first()
-            )
-            live.append({
-                "instance_id": ci.instance_id, "started_at": ci.started_at, "username": u.username,
-                "challenge_name": challenge.title, "theme_name": (challenge.category or "general").title(),
-                "proxmox_vmid": vm.proxmox_vmid if vm else None,
-            })
-        recent = audit.query_recent(limit=12)
-        return render_template("admin/console.html", stats=stats, locked=locked, live=live, recent=recent)
+    stats = query(
+        """
+        SELECT (SELECT COUNT(*) FROM user)                                          AS accounts,
+               (SELECT COUNT(*) FROM user WHERE role = 'moderator')                 AS moderators,
+               (SELECT COUNT(*) FROM user WHERE role = 'admin')                     AS admins,
+               (SELECT COUNT(*) FROM user WHERE locked_until IS NOT NULL)           AS locked,
+               (SELECT COUNT(*) FROM user WHERE approval_status = 'pending')        AS pending,
+               (SELECT COUNT(*) FROM running_instance WHERE status = 'in_progress') AS live_sessions,
+               (SELECT COUNT(*) FROM active_vm WHERE status = 'running')            AS live_vms,
+               (SELECT COUNT(*) FROM active_vm WHERE status = 'error')              AS stuck_vms
+        """,
+        one=True,
+    )
+    locked = query(
+        "SELECT user_id, username, name, locked_until, failed_attempts FROM user "
+        "WHERE locked_until IS NOT NULL ORDER BY locked_until DESC LIMIT 10"
+    )
+    live = query(
+        "SELECT ri.instance_id, ri.started_at, u.username, c.name AS challenge_name, "
+        "       t.name AS theme_name, av.proxmox_vmid "
+        "FROM running_instance ri "
+        "JOIN user u ON u.user_id = ri.user_id "
+        "JOIN challenge c ON c.challenge_id = ri.challenge_id "
+        "JOIN theme t ON t.theme_id = ri.theme_id "
+        "LEFT JOIN active_vm av ON av.active_vm_id = ri.active_vm_id "
+        "WHERE ri.status = 'in_progress' ORDER BY ri.started_at"
+    )
+    recent = query(
+        "SELECT occurred_at, event, username, source_ip, detail FROM audit_log "
+        "ORDER BY audit_id DESC LIMIT 12"
+    )
+    return render_template("admin/console.html", stats=stats, locked=locked, live=live,
+                           recent=recent)
 
 
 # ------------------------------------------------------------------ users
+
+@bp.route("/approvals")
+@require("approve_accounts")
+def approvals():
+    """Registrations waiting on a decision, oldest first.
+
+    Oldest first on purpose: somebody who registered on Monday should not be
+    stuck behind Friday's intake.
+    """
+    waiting = query(
+        "SELECT * FROM user WHERE approval_status = 'pending' ORDER BY created_at"
+    )
+    recent = query(
+        "SELECT u.*, a.username AS decided_by FROM user u "
+        "LEFT JOIN user a ON a.user_id = u.approved_by "
+        "WHERE u.approval_status != 'pending' AND u.approved_at IS NOT NULL "
+        "ORDER BY u.approved_at DESC LIMIT 10"
+    )
+    return render_template("admin/approvals.html", waiting=waiting, recent=recent)
+
+
+@bp.route("/users/<int:user_id>/approve", methods=("POST",))
+@require("approve_accounts")
+def approve(user_id):
+    target = _target(user_id)
+    if target["approval_status"] == "approved":
+        flash(f"{target['username']} is already approved.", "info")
+        return redirect(url_for("admin.approvals"))
+
+    execute(
+        "UPDATE user SET approval_status = 'approved', approved_at = ?, approved_by = ? "
+        "WHERE user_id = ?",
+        (utcnow(), g.user["user_id"], user_id),
+    )
+    audit.record(audit.ACCOUNT_APPROVED, user_id=user_id, username=target["username"],
+                 detail=f"by {g.user['username']}")
+    flash(f"{target['username']} can now use the platform.", "success")
+    return redirect(url_for("admin.approvals"))
+
+
+@bp.route("/users/<int:user_id>/reject", methods=("POST",))
+@require("approve_accounts")
+def reject(user_id):
+    """Refuse a registration.
+
+    The row is kept rather than deleted, so the username stays reserved and the
+    decision stays in the audit trail. A rejected account can be approved later
+    if it turns out to have been a mistake.
+    """
+    target = _target(user_id)
+    if target["role"] != roles.STUDENT:
+        # Rejecting an account that already holds staff powers would be a quiet
+        # way to disable a colleague. Use the role controls for that.
+        abort(403)
+
+    execute(
+        "UPDATE user SET approval_status = 'rejected', approved_at = ?, approved_by = ? "
+        "WHERE user_id = ?",
+        (utcnow(), g.user["user_id"], user_id),
+    )
+    audit.record(audit.ACCOUNT_REJECTED, user_id=user_id, username=target["username"],
+                 detail=f"by {g.user['username']}")
+    flash(f"{target['username']} was not approved.", "info")
+    return redirect(url_for("admin.approvals"))
+
 
 @bp.route("/users")
 @require("view_users")
 def users():
     search = request.args.get("q", "").strip()[:60]
-    q = db.session.query(User).join(Role)
     if search:
-        like = f"%{search}%"
-        q = q.filter(db.or_(User.username.ilike(like), User.display_name.ilike(like)))
-    rows_orm = q.order_by(Role.role_level.desc(), User.username).limit(200).all()
-    rows = [get_user_row(u.user_id) for u in rows_orm]
+        rows = query(
+            "SELECT * FROM user WHERE username LIKE ? OR name LIKE ? "
+            "ORDER BY role DESC, username LIMIT 200",
+            (f"%{search}%", f"%{search}%"),
+        )
+    else:
+        rows = query("SELECT * FROM user ORDER BY role DESC, username LIMIT 200")
     return render_template("admin/users.html", users=rows, search=search)
 
 
@@ -140,23 +181,20 @@ def users():
 @require("view_users")
 def user_detail(user_id):
     target = _target(user_id)
-    session_rows = (
-        db.session.query(ChallengeInstance, Challenge)
-        .join(Challenge, ChallengeInstance.challenge_id == Challenge.challenge_id)
-        .filter(ChallengeInstance.user_id == user_id)
-        .order_by(ChallengeInstance.started_at.desc())
-        .limit(15).all()
+    sessions = query(
+        "SELECT ri.instance_id, ri.status, ri.started_at, ri.duration_seconds, "
+        "       c.name AS challenge_name, t.name AS theme_name "
+        "FROM running_instance ri "
+        "JOIN challenge c ON c.challenge_id = ri.challenge_id "
+        "JOIN theme t ON t.theme_id = ri.theme_id "
+        "WHERE ri.user_id = ? ORDER BY ri.started_at DESC LIMIT 15",
+        (user_id,),
     )
-    sessions = [
-        {
-            "instance_id": ci.instance_id, "status": ci.status, "started_at": ci.started_at,
-            "duration_seconds": max(0, int(((ci.completed_at or ci.stopped_at) - ci.started_at).total_seconds()))
-                                 if ci.started_at and (ci.completed_at or ci.stopped_at) else None,
-            "challenge_name": challenge.title, "theme_name": (challenge.category or "general").title(),
-        }
-        for ci, challenge in session_rows
-    ]
-    events = audit.query_recent(limit=20, user_id=user_id)
+    events = query(
+        "SELECT occurred_at, event, source_ip, detail FROM audit_log "
+        "WHERE user_id = ? ORDER BY audit_id DESC LIMIT 20",
+        (user_id,),
+    )
     return render_template(
         "admin/user_detail.html",
         target=target,
@@ -186,11 +224,7 @@ def lock(user_id):
     _may_act_on(target)
     hours = min(max(int(request.form.get("hours", 24) or 24), 1), 8760)
     until = datetime.utcnow() + timedelta(hours=hours)
-    user = db.session.get(User, user_id)
-    if user.credentials is None:
-        user.credentials = UserCredential(user_id=user_id, password_hash="")
-    user.credentials.locked_until = until
-    db.session.commit()
+    execute("UPDATE user SET locked_until = ? WHERE user_id = ?", (fmt_ts(until), user_id))
     audit.record("account.locked_by_staff", user_id=user_id, username=target["username"],
                  detail=f"{hours}h by {g.user['username']}")
     flash(f"{target['username']} is locked out for {hours} hours.", "info")
@@ -258,11 +292,11 @@ def set_role(user_id):
         return redirect(url_for("admin.user_detail", user_id=user_id))
 
     if target["role"] == roles.ADMIN and new_role != roles.ADMIN:
-        remaining = (
-            db.session.query(User).join(Role)
-            .filter(Role.role_name == "sysadmin", User.user_id != user_id)
-            .count()
-        )
+        remaining = query(
+            "SELECT COUNT(*) AS n FROM user WHERE role = 'admin' AND user_id != ?",
+            (user_id,),
+            one=True,
+        )["n"]
         if remaining == 0:
             flash(
                 "That is the only administrator account. Promote someone else first — "
@@ -272,13 +306,11 @@ def set_role(user_id):
             )
             return redirect(url_for("admin.user_detail", user_id=user_id))
 
-    db_role = db.session.execute(
-        db.select(Role).filter_by(role_name=ROLE_NAME_TO_DB[new_role])
-    ).scalar_one()
-    user = db.session.get(User, user_id)
     previous = target["role"]
-    user.role_id = db_role.role_id
-    db.session.commit()
+    execute(
+        "UPDATE user SET role = ?, role_set_at = ?, role_set_by = ? WHERE user_id = ?",
+        (new_role, utcnow(), g.user["user_id"], user_id),
+    )
     audit.record("account.role_changed", user_id=user_id, username=target["username"],
                  detail=f"{previous} -> {new_role} by {g.user['username']}")
     flash(f"{target['username']} is now {roles.LABELS[new_role].lower()}.", "success")
@@ -290,42 +322,23 @@ def set_role(user_id):
 @bp.route("/sessions")
 @require("view_sessions")
 def sessions():
-    live_rows = (
-        db.session.query(ChallengeInstance, User, Challenge)
-        .join(User, ChallengeInstance.user_id == User.user_id)
-        .join(Challenge, ChallengeInstance.challenge_id == Challenge.challenge_id)
-        .filter(ChallengeInstance.status == "running")
-        .order_by(ChallengeInstance.started_at)
-        .all()
+    live = query(
+        "SELECT ri.instance_id, ri.started_at, u.username, c.name AS challenge_name, "
+        "       t.name AS theme_name, av.proxmox_vmid, av.node, av.status AS vm_status "
+        "FROM running_instance ri "
+        "JOIN user u ON u.user_id = ri.user_id "
+        "JOIN challenge c ON c.challenge_id = ri.challenge_id "
+        "JOIN theme t ON t.theme_id = ri.theme_id "
+        "LEFT JOIN active_vm av ON av.active_vm_id = ri.active_vm_id "
+        "WHERE ri.status = 'in_progress' ORDER BY ri.started_at"
     )
-    live = []
-    for ci, u, challenge in live_rows:
-        vm = (
-            db.session.query(VMInstance)
-            .filter(VMInstance.instance_id == ci.instance_id, VMInstance.deleted_at.is_(None))
-            .order_by(VMInstance.created_at.desc()).first()
-        )
-        live.append({
-            "instance_id": ci.instance_id, "started_at": ci.started_at, "username": u.username,
-            "challenge_name": challenge.title, "theme_name": (challenge.category or "general").title(),
-            "proxmox_vmid": vm.proxmox_vmid if vm else None, "node": vm.proxmox_node if vm else None,
-            "vm_status": vm.status if vm else None,
-        })
-    orphan_rows = (
-        db.session.query(VMInstance)
-        .filter(VMInstance.status.in_(("running", "error")), VMInstance.deleted_at.is_(None))
-        .all()
+    orphans = query(
+        "SELECT av.active_vm_id, av.proxmox_vmid, av.node, av.status, av.started_at, v.name "
+        "FROM active_vm av JOIN vm v ON v.vm_id = av.vm_id "
+        "WHERE av.status IN ('running', 'error') "
+        "AND NOT EXISTS (SELECT 1 FROM running_instance ri "
+        "                WHERE ri.active_vm_id = av.active_vm_id AND ri.status = 'in_progress')"
     )
-    orphans = []
-    for vm in orphan_rows:
-        ci = db.session.get(ChallengeInstance, vm.instance_id)
-        if ci is not None and ci.status == "running":
-            continue
-        orphans.append({
-            "vm_instance_id": vm.vm_instance_id, "proxmox_vmid": vm.proxmox_vmid,
-            "node": vm.proxmox_node, "status": vm.status, "started_at": vm.started_at or vm.created_at,
-            "name": vm.hostname,
-        })
     return render_template("admin/sessions.html", live=live, orphans=orphans)
 
 
@@ -342,19 +355,23 @@ def close_session(instance_id):
     """
     from .themes import _close   # imported here to avoid a circular import
 
-    instance = db.session.get(ChallengeInstance, instance_id)
+    instance = query(
+        "SELECT ri.*, u.username FROM running_instance ri "
+        "JOIN user u ON u.user_id = ri.user_id WHERE ri.instance_id = ?",
+        (instance_id,),
+        one=True,
+    )
     if instance is None:
         abort(404)
-    if instance.status != "running":
+    if instance["status"] != "in_progress":
         flash("That session is already closed.", "info")
         return redirect(url_for("admin.sessions"))
 
-    username = db.session.get(User, instance.user_id).username
     _close(instance_id, "abandoned")
-    audit.record("session.closed_by_staff", user_id=instance.user_id,
-                 username=username,
+    audit.record("session.closed_by_staff", user_id=instance["user_id"],
+                 username=instance["username"],
                  detail=f"instance {instance_id} by {g.user['username']}")
-    flash(f"Closed {username}'s session and released the machine.", "success")
+    flash(f"Closed {instance['username']}'s session and released the machine.", "success")
     return redirect(url_for("admin.sessions"))
 
 
@@ -364,8 +381,14 @@ def close_session(instance_id):
 @require("view_audit_log")
 def audit_log():
     event = request.args.get("event", "").strip()[:60]
-    rows = audit.query_recent(limit=AUDIT_PAGE_SIZE, event=event or None)
-    events = audit.distinct_events()
+    if event:
+        rows = query(
+            "SELECT * FROM audit_log WHERE event = ? ORDER BY audit_id DESC LIMIT ?",
+            (event, AUDIT_PAGE_SIZE),
+        )
+    else:
+        rows = query("SELECT * FROM audit_log ORDER BY audit_id DESC LIMIT ?", (AUDIT_PAGE_SIZE,))
+    events = query("SELECT DISTINCT event FROM audit_log ORDER BY event")
     return render_template("admin/audit.html", rows=rows, events=events, selected=event)
 
 
@@ -382,19 +405,17 @@ def set_role_command(username, role):
     the point — it is the one privilege escalation that cannot be performed over
     the web.
     """
-    user = db.session.execute(db.select(User).filter_by(username=username)).scalar_one_or_none()
+    user = query("SELECT user_id, username, role FROM user WHERE username = ?",
+                 (username,), one=True)
     if user is None:
         raise click.ClickException(f"No account called {username}.")
 
-    previous_role = user.role.role_name
-    db_role = db.session.execute(
-        db.select(Role).filter_by(role_name=ROLE_NAME_TO_DB[role])
-    ).scalar_one()
-    user.role_id = db_role.role_id
-    db.session.commit()
-    audit.record("account.role_changed", user_id=user.user_id, username=username,
-                 detail=f"{previous_role} -> {db_role.role_name} via CLI")
-    click.echo(f"{username}: {previous_role} -> {db_role.role_name}")
+    execute("UPDATE user SET role = ?, role_set_at = ?, role_set_by = NULL WHERE user_id = ?",
+            (role, utcnow(), user["user_id"]))
+    audit.record("account.role_changed", user_id=user["user_id"], username=username,
+                 detail=f"{user['role']} -> {role} via CLI")
+    click.echo(f"{username}: {user['role']} -> {role}")
+
 
 def init_app(app):
     app.cli.add_command(set_role_command)

@@ -26,6 +26,7 @@ suite does not have to send fifteen real requests, then put them back. If you
 add a throttled action, follow that pattern rather than raising the limits.
 """
 
+import hashlib
 import os
 import re
 import sys
@@ -73,9 +74,17 @@ def _events(app):
 def build():
     handle, path = tempfile.mkstemp(suffix=".sqlite")
     os.close(handle)
+    # Everything the run touches lives in a temp directory: the sqlite3 file,
+    # the SQLAlchemy bind for uploads, and the uploaded files themselves.
+    scratch = tempfile.mkdtemp(prefix="pondsec-test-")
     app = create_app({"DATABASE": path, "TESTING": True, "SECRET_KEY": "test",
                       "PROXMOX_BACKEND": "simulate",
+                      "SQLALCHEMY_BINDS": {"pond": f"sqlite:///{scratch}/pond.db"},
+                      "UPLOAD_DIR": os.path.join(scratch, "uploads"),
                       "WTF_CSRF_ENABLED": True})
+    with app.app_context():
+        from app.uploads import db as sa_db
+        sa_db.create_all(bind_key="pond")
     with app.app_context():
         init_db()
         seed()
@@ -106,6 +115,12 @@ def main():
         "username": "weakling", "password": "short", "confirm": "short",
     }, page="/register")
     check("short password rejected", b"at least 12 characters" in response.data.lower())
+
+    # Approve `tester` here so the rest of the suite can use it. The approval
+    # workflow itself is exercised properly further down, with a second account
+    # going through the staff console.
+    with app.app_context():
+        execute("UPDATE user SET approval_status = 'approved' WHERE username = 'tester'")
 
     check("no email field is collected", b'name="email"' not in client.get("/register").data)
     check("there is no forgotten-password page", client.get("/forgot-password").status_code == 404)
@@ -476,6 +491,340 @@ def main():
     check("role changes are audited",
           "account.role_changed" in {r["event"] for r in
                                      (lambda: [dict(x) for x in _events(app)])()})
+
+    # --- account approval ---------------------------------------------------
+    # A new registration can sign in but reaches nothing until an admin approves.
+    pending_c = app.test_client()
+    post(pending_c, "/register", {
+        "name": "Pending Person", "uni_year": "Year 1",
+        "username": "pendingp", "password": PASSWORD, "confirm": PASSWORD,
+    }, page="/register", follow_redirects=True)
+    with app.app_context():
+        fresh = query("SELECT approval_status FROM user WHERE username = 'pendingp'",
+                      one=True)
+    check("new registrations start pending", fresh["approval_status"] == "pending")
+
+    response = post(pending_c, "/login", {"username": "pendingp", "password": PASSWORD},
+                    follow_redirects=True)
+    check("a pending account lands on the waiting page",
+          b"Waiting for approval" in response.data)
+    check("and is told the password was correct",
+          b"password was correct" in response.data)
+
+    # The wrong password must still read as a wrong password, not as approval.
+    stranger = app.test_client()
+    response = post(stranger, "/login", {"username": "pendingp", "password": "wrong-one"},
+                    follow_redirects=True)
+    check("a wrong password on a pending account still says so",
+          b"Username or password is not right" in response.data
+          and b"password was correct" not in response.data)
+    check("a pending account cannot reach the challenges",
+          b"Waiting for approval" in pending_c.get("/themes/", follow_redirects=True).data)
+    check("a pending account cannot reach the dashboard",
+          b"Waiting for approval" in pending_c.get("/dashboard", follow_redirects=True).data)
+
+    # admin_c is whoever holds the admin role at this point in the run — the
+    # role tests above hand it over from bpt to mbates, so this must not
+    # hard-code a username.
+    approver = admin_c
+    check("only admins see the approvals queue",
+          approver.get("/admin/approvals").status_code == 200
+          and mod_c.get("/admin/approvals").status_code == 403)
+    check("the queue lists the waiting account", b"pendingp" in approver.get("/admin/approvals").data)
+
+    with app.app_context():
+        pending_id = query("SELECT user_id FROM user WHERE username = 'pendingp'",
+                           one=True)["user_id"]
+    post(approver, f"/admin/users/{pending_id}/approve", {}, page="/admin/approvals",
+         follow_redirects=True)
+    check("an approved account gets through",
+          b"Overall leaderboard" in pending_c.get("/dashboard", follow_redirects=True).data)
+    with app.app_context():
+        decided = query("SELECT approval_status, approved_by FROM user WHERE user_id = ?",
+                        (pending_id,), one=True)
+    check("the approval records who decided", decided["approved_by"] is not None)
+    check("approvals are audited",
+          "account.approved" in {r["event"] for r in _events(app)})
+
+    # --- challenge tiles must not leak the VM behind them --------------------
+    tiles = client.get("/themes/1").data
+    with app.app_context():
+        vm_names = [r["name"] for r in query("SELECT name FROM vm")]
+    check("no VM template name appears on a challenge tile",
+          not any(name.encode() in tiles for name in vm_names))
+
+    # --- VM image uploads ----------------------------------------------------
+    import io as _io
+
+    # A fresh client: student_c lost its session to the lockout test above.
+    upload_student = app.test_client()
+    post(upload_student, "/login", {"username": "demo", "password": DEMO_PASSWORD})
+    check("students cannot reach uploads",
+          upload_student.get("/admin/uploads/").status_code == 403)
+    check("moderators cannot reach uploads", mod_c.get("/admin/uploads/").status_code == 403)
+    check("admins can reach uploads", b"VM image uploads" in approver.get("/admin/uploads/").data)
+
+    # Only disk image formats are accepted.
+    for rejected_name in ("notes.txt", "script.py", "archive.zip", "noextension"):
+        response = approver.post(
+            "/admin/uploads/",
+            data={"_csrf": token(approver, "/admin/uploads/"),
+                  "vm_file": (_io.BytesIO(b"x" * 64), rejected_name)},
+            content_type="multipart/form-data",
+            follow_redirects=True,
+        )
+        check(f"{rejected_name} is refused", b"not accepted" in response.data)
+
+    from app.uploads import ALLOWED_EXTENSIONS
+    for extension in ALLOWED_EXTENSIONS:
+        response = approver.post(
+            "/admin/uploads/",
+            data={"_csrf": token(approver, "/admin/uploads/"),
+                  "vm_file": (_io.BytesIO(b"\x00" * 64), f"image{extension}")},
+            content_type="multipart/form-data",
+            follow_redirects=True,
+        )
+        check(f"{extension} is accepted", b"Uploaded" in response.data)
+
+    # A hostile filename must not decide where the bytes land, even when the
+    # extension itself is allowed.
+    payload = b"pretend-vm-image" * 512
+    response = approver.post(
+        "/admin/uploads/",
+        data={"_csrf": token(approver, "/admin/uploads/"),
+              "display_name": "Test image",
+              "vm_file": (_io.BytesIO(payload), "../../../app/themes.qcow2")},
+        content_type="multipart/form-data",
+        follow_redirects=True,
+    )
+    check("a traversal filename is neutralised", b"Uploaded Test image" in response.data)
+
+    # The bytes are checked against the name, and a disagreement is flagged.
+    response = approver.post(
+        "/admin/uploads/",
+        data={"_csrf": token(approver, "/admin/uploads/"),
+              "display_name": "Mislabelled",
+              "vm_file": (_io.BytesIO(b"QFI\xfb" + b"\x00" * 512), "wrong.vmdk")},
+        content_type="multipart/form-data",
+        follow_redirects=True,
+    )
+    check("contents that contradict the extension are flagged",
+          b"does not match its name" in response.data)
+
+    # Pasting a URL downloads the image and stores it exactly like an upload.
+    # A local HTTP server stands in for wherever the image really lives.
+    import http.server
+    import socketserver
+    import threading
+
+    image_body = b"QFI\xfb" + b"\x00" * 4096
+
+    class _ImageHandler(http.server.BaseHTTPRequestHandler):
+        def do_GET(self):
+            if self.path == "/hop":
+                self.send_response(302)
+                self.send_header("Location", "/base.qcow2")
+                self.end_headers()
+                return
+            if self.path == "/loop":
+                self.send_response(302)
+                self.send_header("Location", "/loop")
+                self.end_headers()
+                return
+            if self.path == "/notes.txt":
+                self.send_response(200)
+                self.send_header("Content-Length", "5")
+                self.end_headers()
+                self.wfile.write(b"hello")
+                return
+            if self.path == "/missing.qcow2":
+                self.send_response(404)
+                self.end_headers()
+                return
+            self.send_response(200)
+            self.send_header("Content-Length", str(len(image_body)))
+            self.end_headers()
+            self.wfile.write(image_body)
+
+        def log_message(self, *args):
+            pass
+
+    server = socketserver.TCPServer(("127.0.0.1", 0), _ImageHandler)
+    image_port = server.server_address[1]
+    threading.Thread(target=server.serve_forever, daemon=True).start()
+
+    def image_url(path):
+        return f"http://127.0.0.1:{image_port}{path}"
+
+    # The guards run before anything is fetched, so check them against the real
+    # address rules first, with the server still refusing loopback.
+    for bad_url, why in (
+        (image_url("/base.qcow2"), "loopback"),
+        ("http://169.254.169.254/latest/meta.qcow2", "link-local metadata"),
+        ("http://10.1.21.151:8006/api2/json/x.qcow2", "the Proxmox host"),
+        ("file:///etc/passwd", "file scheme"),
+        ("ftp://example.org/x.qcow2", "ftp scheme"),
+        ("not-a-url", "no host"),
+    ):
+        response = post(approver, "/admin/uploads/url", {"source_url": bad_url},
+                        page="/admin/uploads/", follow_redirects=True)
+        check(f"URL refused ({why})", b"Downloaded" not in response.data)
+
+    # Now allow the loopback test server through, to exercise the download path.
+    from app import fetcher as _fetcher
+
+    original_check = _fetcher._check_address
+    _fetcher._check_address = lambda address, allow_private: None
+    try:
+        response = post(approver, "/admin/uploads/url",
+                        {"source_url": image_url("/base.qcow2"),
+                         "display_name": "Remote base"},
+                        page="/admin/uploads/", follow_redirects=True)
+        check("a pasted URL is downloaded", b"Downloaded Remote base" in response.data)
+
+        with app.app_context():
+            from app.uploads import VMUpload as _VMU
+            from app.uploads import db as _sadb
+            from app.uploads import upload_dir as _upload_dir
+            fetched = _sadb.session.execute(
+                _sadb.select(_VMU).where(_VMU.display_name == "Remote base")
+            ).scalars().first()
+            fetched_dir = _upload_dir()
+        check("the downloaded image is stored like an upload",
+              fetched.stored_name is not None
+              and fetched.size_bytes == len(image_body)
+              and fetched.sha256 == hashlib.sha256(image_body).hexdigest())
+        check("and records where it came from",
+              (fetched.source_url or "").endswith("/base.qcow2"))
+        check("the bytes are on disk",
+              os.path.exists(os.path.join(fetched_dir, fetched.stored_name)))
+
+        response = post(approver, "/admin/uploads/url",
+                        {"source_url": image_url("/hop"), "display_name": "Redirected"},
+                        page="/admin/uploads/", follow_redirects=True)
+        check("a redirect is followed", b"Downloaded Redirected" in response.data)
+
+        response = post(approver, "/admin/uploads/url",
+                        {"source_url": image_url("/loop")},
+                        page="/admin/uploads/", follow_redirects=True)
+        check("a redirect loop is cut off", b"redirected more than" in response.data)
+
+        response = post(approver, "/admin/uploads/url",
+                        {"source_url": image_url("/notes.txt")},
+                        page="/admin/uploads/", follow_redirects=True)
+        check("a non-image URL is refused", b"not accepted" in response.data)
+
+        response = post(approver, "/admin/uploads/url",
+                        {"source_url": image_url("/missing.qcow2")},
+                        page="/admin/uploads/", follow_redirects=True)
+        check("a 404 is reported", b"HTTP 404" in response.data)
+    finally:
+        _fetcher._check_address = original_check
+        server.shutdown()
+
+    with app.app_context():
+        from app.uploads import VMUpload, upload_dir
+        from app.uploads import db as sa_db
+        record = sa_db.session.execute(
+            sa_db.select(VMUpload).where(VMUpload.display_name == "Test image")
+        ).scalars().first()
+        url_record = sa_db.session.execute(
+            sa_db.select(VMUpload).where(VMUpload.source == "url")
+        ).scalars().first()
+        stored_dir = upload_dir()
+    check("a URL row holds a file like any other",
+          url_record.stored_name is not None and url_record.sha256 is not None)
+    check("the upload is catalogued in SQLAlchemy", record is not None)
+    check("the stored name is generated, not the supplied one",
+          record.stored_name.endswith(".upload") and "themes" not in record.stored_name)
+    check("the checksum matches the bytes",
+          record.sha256 == hashlib.sha256(payload).hexdigest())
+
+    check("nothing escaped the upload directory",
+          os.path.exists(os.path.join(stored_dir, record.stored_name)))
+    check("every stored file is inside the upload directory",
+          all(os.path.isfile(os.path.join(stored_dir, name))
+              for name in os.listdir(stored_dir)))
+    check("the source tree was not touched",
+          os.path.exists(os.path.join("app", "themes.py")))
+    check("uploads are not reachable over HTTP",
+          approver.get(f"/static/{record.stored_name}").status_code == 404)
+    check("uploads are audited", "vm_image.uploaded" in {r["event"] for r in _events(app)})
+
+    # --- status labels -------------------------------------------------------
+    # Bookkeeping only: quarantine and sanitisation happen in Proxmox, so
+    # nothing in the platform behaves differently based on this.
+    check("an upload starts as new", record.status == "new")
+
+    response = post(approver, f"/admin/uploads/{record.upload_id}/status",
+                    {"status": "checked", "review_notes": "imported to pve, looks fine"},
+                    page="/admin/uploads/", follow_redirects=True)
+    check("a status can be set", b"marked checked" in response.data)
+
+    with app.app_context():
+        from app.uploads import VMUpload as _VMUpload
+        from app.uploads import db as _sa
+        labelled = _sa.session.get(_VMUpload, record.upload_id)
+    check("who set it is recorded", labelled.reviewed_by_username is not None
+          and labelled.reviewed_at is not None)
+    check("the note is kept", "imported" in (labelled.review_notes or ""))
+    check("the file did not move",
+          os.path.exists(os.path.join(stored_dir, record.stored_name)))
+
+    response = post(approver, f"/admin/uploads/{record.upload_id}/status",
+                    {"status": "not-a-real-status"}, page="/admin/uploads/",
+                    follow_redirects=True)
+    check("an unknown status is refused", b"not a status" in response.data)
+
+    before = len(os.listdir(stored_dir))
+    response = approver.post(
+        "/admin/uploads/",
+        data={"_csrf": token(approver, "/admin/uploads/"),
+              "vm_file": (_io.BytesIO(b""), "empty.qcow2")},
+        content_type="multipart/form-data",
+        follow_redirects=True,
+    )
+    check("an empty upload is refused", b"was empty" in response.data)
+    check("a refused upload leaves nothing behind",
+          len(os.listdir(stored_dir)) == before)
+
+    # --- regressions found by tools/fuzz.py ---------------------------------
+    # An id larger than SQLite can hold used to reach a query and raise
+    # OverflowError, which surfaced as a 500 from the address bar.
+    overflow = "9223372036854775808"          # 2**63, one past the limit
+    # Named `route` rather than `path`, which is the temp database file used
+    # at cleanup further down.
+    for route in (f"/themes/{overflow}",
+                  f"/themes/session/{overflow}/timer",
+                  f"/admin/users/{overflow}"):
+        check(f"an out-of-range id 404s rather than crashing: {route[:34]}",
+              admin_c.get(route).status_code == 404)
+    check("ids at the SQLite limit are still routed",
+          admin_c.get("/themes/9223372036854775807").status_code == 404)
+    check("ordinary ids still work", admin_c.get("/themes/1").status_code == 200)
+
+    # Staff force-closing a session imported a module that no longer exists,
+    # so the button 500d. Only reachable once the overflow fix was in.
+    victim = app.test_client()
+    post(victim, "/login", {"username": "lhardie", "password": DEMO_PASSWORD})
+    with app.app_context():
+        spare = query("SELECT challenge_id FROM challenge WHERE theme_id = 3 "
+                      "AND challenge_number = 1", one=True)["challenge_id"]
+    post(victim, f"/themes/challenges/{spare}/launch", {}, page="/themes/3",
+         follow_redirects=True)
+    with app.app_context():
+        live = query("SELECT instance_id FROM running_instance "
+                     "WHERE status = 'in_progress' ORDER BY instance_id DESC LIMIT 1",
+                     one=True)
+    if live:
+        response = post(approver, f"/admin/sessions/{live['instance_id']}/close", {},
+                        page="/admin/sessions", follow_redirects=True)
+        check("staff can force-close a session", b"Closed" in response.data)
+        with app.app_context():
+            closed = query("SELECT status FROM running_instance WHERE instance_id = ?",
+                           (live["instance_id"],), one=True)
+        check("a force-closed session is recorded as abandoned",
+              closed["status"] == "abandoned")
 
     # --- audit trail --------------------------------------------------------
     with app.app_context():

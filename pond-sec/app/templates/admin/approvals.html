@@ -1,0 +1,69 @@
+{% extends "base.html" %}
+{% block title %}Approvals · Pond Sec{% endblock %}
+
+{% block content %}
+<header class="page-head">
+  <p class="eyebrow">Staff console</p>
+  <h1>Account approvals</h1>
+  <p class="lede">New registrations can sign in but reach nothing until they are approved.
+     Rejected accounts keep their username so nobody can re-register it, and can be
+     approved later if the decision changes.</p>
+</header>
+
+<section class="board">
+  <header class="board-head">
+    <h2>Waiting{% if waiting %} ({{ waiting|length }}){% endif %}</h2>
+    <p class="hint">Oldest first.</p>
+  </header>
+  <div class="table-wrap">
+    <table class="grid">
+      <thead>
+        <tr><th>User</th><th>Name</th><th>Year</th><th>Registered</th><th></th></tr>
+      </thead>
+      <tbody>
+        {% for row in waiting %}
+        <tr>
+          <td><a href="{{ url_for('admin.user_detail', user_id=row['user_id']) }}">{{ row['username'] }}</a></td>
+          <td>{{ row['name'] }}</td>
+          <td class="soft">{{ row['uni_year'] }}</td>
+          <td class="mono soft">{{ row['created_at']|stamp }}</td>
+          <td class="decision-cell">
+            <form method="post" action="{{ url_for('admin.approve', user_id=row['user_id']) }}">
+              <input type="hidden" name="_csrf" value="{{ csrf_token() }}">
+              <button class="btn btn-solid" type="submit">Approve</button>
+            </form>
+            <form method="post" action="{{ url_for('admin.reject', user_id=row['user_id']) }}">
+              <input type="hidden" name="_csrf" value="{{ csrf_token() }}">
+              <button class="btn btn-quiet" type="submit">Reject</button>
+            </form>
+          </td>
+        </tr>
+        {% else %}
+        <tr><td colspan="5" class="empty">Nothing waiting.</td></tr>
+        {% endfor %}
+      </tbody>
+    </table>
+  </div>
+</section>
+
+<section class="board">
+  <header class="board-head"><h2>Recent decisions</h2></header>
+  <div class="table-wrap">
+    <table class="grid">
+      <thead><tr><th>User</th><th>Outcome</th><th>When</th><th>Decided by</th></tr></thead>
+      <tbody>
+        {% for row in recent %}
+        <tr>
+          <td><a href="{{ url_for('admin.user_detail', user_id=row['user_id']) }}">{{ row['username'] }}</a></td>
+          <td><span class="status status-{{ 'complete' if row['approval_status'] == 'approved' else 'abandoned' }}">{{ row['approval_status'] }}</span></td>
+          <td class="mono soft">{{ row['approved_at']|stamp }}</td>
+          <td>{{ row['decided_by'] or '—' }}</td>
+        </tr>
+        {% else %}
+        <tr><td colspan="4" class="empty">No decisions yet.</td></tr>
+        {% endfor %}
+      </tbody>
+    </table>
+  </div>
+</section>
+{% endblock %}

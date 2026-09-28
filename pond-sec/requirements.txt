@@ -1,13 +1,15 @@
 Flask>=3.0
 
+# requests is used by app/fetcher.py to download VM images from a URL, and by
+# proxmoxer when PROXMOX_BACKEND=api.
+requests>=2.31
+
 # Only needed when PROXMOX_BACKEND=api
 proxmoxer>=2.0
-requests>=2.31
-flask-sock>=0.7
-websocket-client>=1.7
 
 # Production WSGI server. gunicorn is Unix-only (it imports fcntl), so Windows
 # gets waitress instead — the markers mean `pip install -r requirements.txt`
 # does the right thing on either platform without editing this file.
 gunicorn>=21.2; sys_platform != "win32"
 waitress>=3.0; sys_platform == "win32"
+flask-sqlalchemy>=3.1

@@ -19,6 +19,9 @@
     <div><dt>Moderators</dt><dd class="mono figure-lg">{{ stats['moderators'] }}</dd></div>
     <div><dt>Admins</dt><dd class="mono figure-lg">{{ stats['admins'] }}</dd></div>
     <div><dt>Locked out</dt><dd class="mono figure-lg">{{ stats['locked'] }}</dd></div>
+    {% if can('approve_accounts') %}
+    <div><dt>Awaiting approval</dt><dd class="mono figure-lg">{{ stats['pending'] }}</dd></div>
+    {% endif %}
   </dl>
 </section>
 
@@ -67,6 +70,15 @@
       <p class="hint">Where the work happens.</p></header>
     <a class="btn btn-outline btn-block" href="{{ url_for('admin.users') }}">All accounts</a>
     <a class="btn btn-outline btn-block" href="{{ url_for('admin.audit_log') }}">Audit log</a>
+    {% if can('approve_accounts') %}
+      <a class="btn {% if stats['pending'] %}btn-solid{% else %}btn-outline{% endif %} btn-block"
+         href="{{ url_for('admin.approvals') }}">
+        Approvals{% if stats['pending'] %} ({{ stats['pending'] }}){% endif %}
+      </a>
+    {% endif %}
+    {% if can('upload_vm_images') %}
+      <a class="btn btn-outline btn-block" href="{{ url_for('uploads.index') }}">VM uploads</a>
+    {% endif %}
     {% if can('change_roles') %}
       <p class="hint">You can grant and remove moderator access from any account page.</p>
     {% else %}

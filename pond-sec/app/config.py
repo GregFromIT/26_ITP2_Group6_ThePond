@@ -49,9 +49,26 @@ class Config:
     PERMANENT_SESSION_LIFETIME = _int("SESSION_LIFETIME_MINUTES", 720) * 60
     IDLE_TIMEOUT_MINUTES = _int("IDLE_TIMEOUT_MINUTES", 60)
 
-    # Nothing here accepts an upload. Anything large is either a mistake or an
-    # attempt to tie up a worker.
+    # Ordinary forms are tiny, so anything large is a mistake or an attempt to
+    # tie up a worker. VM image uploads are the exception and are exempted per
+    # request in app/uploads.py, with their own much larger limit.
     MAX_CONTENT_LENGTH = _int("MAX_CONTENT_BYTES", 64 * 1024)
+
+    # Where uploaded VM images are written. Outside the app package and never
+    # served over HTTP. Defaults to instance/uploads.
+    UPLOAD_DIR = os.environ.get("UPLOAD_DIR")
+
+    # Pasting a URL into the uploads page makes THIS SERVER fetch it, which is
+    # server-side request forgery if left unguarded — and this server sits on
+    # the same network as Proxmox holding an API token. app/fetcher.py refuses
+    # private, loopback, link-local and reserved addresses, and re-checks every
+    # redirect hop.
+    #
+    # Turn this on only if VM images genuinely live on an internal server, and
+    # understand what it allows: anyone who can reach the uploads page can then
+    # make the platform request any internal address and store the reply.
+    # Loopback and link-local stay refused either way.
+    UPLOAD_FETCH_ALLOW_PRIVATE = _bool("UPLOAD_FETCH_ALLOW_PRIVATE", False)
     MAX_FIELD_LENGTH = _int("MAX_FIELD_LENGTH", 200)
 
     FORCE_HTTPS = _bool("FORCE_HTTPS", IS_PRODUCTION)
@@ -61,7 +78,7 @@ class Config:
     TRUSTED_PROXIES = _int("TRUSTED_PROXIES", 0)
 
     # --- Database --------------------------------------------------------
-    #DATABASE = os.environ.get("DATABASE_PATH", "instance/cyber_range.sqlite")
+    DATABASE = os.environ.get("DATABASE_PATH", "instance/cyber_range.sqlite")
 
     # --- Account policy --------------------------------------------------
     MAX_LOGIN_ATTEMPTS = _int("MAX_LOGIN_ATTEMPTS", 3)
@@ -71,6 +88,7 @@ class Config:
     # --- Proxmox ---------------------------------------------------------
     # Defaults are the project's own cluster. Everything is still overridable,
     # so a second cluster needs no code change.
+    PROXMOX_BACKEND = os.environ.get("PROXMOX_BACKEND", "simulate")
     PROXMOX_HOST = os.environ.get("PROXMOX_HOST", "10.1.21.151")
     PROXMOX_NODE = os.environ.get("PROXMOX_NODE", "pve")
 
@@ -79,22 +97,12 @@ class Config:
     # least-privilege token before this runs for a cohort.
     PROXMOX_TOKEN_ID = os.environ.get("PROXMOX_TOKEN_ID", "root@pam!root")
     # No default, ever. The secret comes from the environment or nowhere.
-    PROXMOX_TOKEN_SECRET = os.environ.get("THEPOND_PROXMOX_TOKEN_SECRET")
+    PROXMOX_TOKEN_SECRET = os.environ.get("PROXMOX_TOKEN_SECRET")
 
     # Where clone disks land. Only consulted for full clones — a linked clone
     # shares the template's disk and inherits its storage.
     PROXMOX_STORAGE = os.environ.get("PROXMOX_STORAGE", "local-lvm")
     PROXMOX_FULL_CLONE = _bool("PROXMOX_FULL_CLONE", False)
-
-    # Gateway written into a single-VM challenge clone's static network
-    # config (see provisioner.inject_instance_network()'s gateway param).
-    # Only used for the no-vnet case - a multi-VM challenge's session VNet
-    # has no router at all (create_session_vnet()'s own docstring), so this
-    # is never written there regardless of what it's set to. Confirmed
-    # 10.1.20.1 is the real gateway for the flat lab VLAN by testing vmid
-    # 308 on 2026-09-16 - omitting it let a clone answer ARP but drop every
-    # reply, since it had no route out.
-    PROXMOX_LAB_GATEWAY = os.environ.get("PROXMOX_LAB_GATEWAY", "10.1.20.1")
 
     # A cluster on an IP address almost certainly has a self-signed certificate,
     # which fails verification. Either install the cluster CA on this host and

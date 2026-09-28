@@ -52,6 +52,8 @@ SCREENS = [
     ("admin", "Staff console", "Moderator and administrator view: accounts, sessions, events."),
     ("admin_users", "Accounts", "Every account with its role and lockout state."),
     ("admin_user", "Account detail", "Unlock, issue a temporary password, and (admins only) set the role."),
+    ("admin_approvals", "Approvals", "New registrations waiting on an administrator."),
+    ("admin_uploads", "VM uploads", "Upload a VM image and catalogue it. Administrators only."),
     ("admin_sessions", "Sessions", "Close a stuck session and release its machine."),
     ("admin_audit", "Audit log", "Read-only record of auth, role and session events."),
 ]
@@ -148,6 +150,14 @@ def capture(app):
 
     # Staff screens need an account that holds the permissions, so they are
     # rendered as STAFF_USER rather than the student above.
+    # A registration left pending on purpose, so the approvals screen in the
+    # preview shows a real row rather than an empty table.
+    applicant = app.test_client()
+    post(applicant, "/register", {
+        "name": "Sam Whitlock", "uni_year": "Year 2", "username": "swhitlock",
+        "password": "PreviewPassphrase1", "confirm": "PreviewPassphrase1",
+    }, "/register")
+
     staff = app.test_client()
     post(staff, "/login", {"username": STAFF_USER, "password": DEMO_PASSWORD}, "/login")
     grab("admin", staff, "/admin/")
@@ -155,6 +165,37 @@ def capture(app):
     with app.app_context():
         subject = query("SELECT user_id FROM user WHERE username = 'lhardie'", one=True)
     grab("admin_user", staff, f"/admin/users/{subject['user_id']}")
+    grab("admin_approvals", staff, "/admin/approvals")
+    # A sample image and a registered link, so the uploads screen in the preview
+    # shows real rows instead of an empty table.
+    import io as _io
+    staff.post("/admin/uploads/", data={
+        "_csrf": token(staff, "/admin/uploads/"),
+        "display_name": "Ubuntu 24.04 base",
+        "notes": "built 2026-09, patched",
+        "vm_file": (_io.BytesIO(b"QFI\xfb" + b"\x00" * 4096), "ubuntu-24-base.qcow2"),
+    }, content_type="multipart/form-data", follow_redirects=True)
+    # No second image from a URL here: the preview builder has no network, and
+    # a fake host would just render an error. The download path is covered by
+    # tests/test_flow.py against a local server.
+
+    # A second image, marked checked, so the preview shows both states.
+    staff.post("/admin/uploads/", data={
+        "_csrf": token(staff, "/admin/uploads/"),
+        "display_name": "Kali 2026.1",
+        "notes": "attacker box",
+        "vm_file": (_io.BytesIO(b"\x00" * 2048), "kali-2026.vmdk"),
+    }, content_type="multipart/form-data", follow_redirects=True)
+    with app.app_context():
+        from app.uploads import VMUpload, db as _sa
+        released = _sa.session.execute(
+            _sa.select(VMUpload).where(VMUpload.display_name == "Kali 2026.1")
+        ).scalars().first()
+    if released:
+        post(staff, f"/admin/uploads/{released.upload_id}/status",
+             {"status": "checked", "review_notes": "imported to pve, looks fine"},
+             "/admin/uploads/")
+    grab("admin_uploads", staff, "/admin/uploads/")
     grab("admin_sessions", staff, "/admin/sessions")
     grab("admin_audit", staff, "/admin/audit")
     return pages
@@ -197,6 +238,25 @@ def inline_assets(html: str) -> str:
     return html
 
 
+def scrub_build_paths(document: str, app) -> str:
+    """Replace this machine's absolute paths with a neutral placeholder.
+
+    The uploads screen shows where images are written, which is resolved at
+    runtime and so bakes in the build machine's layout. Longest paths first, so
+    a parent directory does not partially rewrite a child.
+    """
+    replacements = {
+        str(ROOT): PROJECT_PLACEHOLDER,
+        str(pathlib.Path(app.instance_path)): f"{PROJECT_PLACEHOLDER}/instance",
+        str(pathlib.Path(tempfile.gettempdir())): "/tmp",
+        str(pathlib.Path.home()): "~",
+    }
+    for actual in sorted(replacements, key=len, reverse=True):
+        if actual and actual not in ("/", "~"):
+            document = document.replace(actual, replacements[actual])
+    return document
+
+
 def logo_rule() -> str:
     """The logo as one stylesheet rule, rather than a copy per screen.
 
@@ -210,6 +270,16 @@ def logo_rule() -> str:
         f"  background: url('{data_uri(logo)}') center/contain no-repeat;\n"
         "}\n"
     )
+
+
+# Anywhere the app prints a filesystem path, the preview would otherwise show
+# the path on whichever machine built it. That is noise at best, and at worst it
+# leaks the build machine's directory layout into a file that gets emailed
+# around. Paths are rewritten to a neutral placeholder on the way out.
+# Stands in for wherever the project is unzipped on the reader's machine. No
+# angle brackets: this goes into finished HTML, and a browser would treat
+# <something> as an unknown tag and render nothing at all.
+PROJECT_PLACEHOLDER = "pond-sec"
 
 
 def build():
@@ -248,6 +318,7 @@ def build():
     document = TEMPLATE.replace("/*CSS*/", css).replace("<!--TABS-->", tabs).replace(
         "<!--PANELS-->", panels
     )
+    document = scrub_build_paths(document, app)
 
     out_dir = ROOT / "preview"
     out_dir.mkdir(exist_ok=True)

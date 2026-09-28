@@ -409,6 +409,21 @@ tr.is-you td { font-weight: 600; }
 .status-role-moderator { border-color: var(--accent); color: var(--accent-dark); }
 .status-role-admin { border-color: var(--signal); color: var(--signal); }
 
+.decision-cell { display: flex; gap: .4rem; align-items: center; }
+.status-form { display: flex; gap: .3rem; align-items: center; margin: 0; }
+.tag-warn { background: var(--signal); }
+
+/* Upload status labels. Anything nobody has looked at is marked down the left
+   so the list can be scanned for what still needs attention. */
+.status-upload-new { border-color: var(--signal); color: var(--signal); }
+.status-upload-checked { border-color: var(--accent); color: var(--accent-dark); }
+.status-upload-rejected { border-color: var(--alert); color: var(--alert); }
+tr.is-unchecked td:first-child { box-shadow: inset 3px 0 0 var(--signal); }
+.review-note { width: auto; flex: 1 1 140px; padding: .3rem .4rem; font-size: .85rem; }
+.status-form select { width: auto; padding: .3rem .4rem; font-size: .85rem; }
+input[type="file"] { padding: .5rem; background: #fbfcfb; }
+.decision-cell form { margin: 0; }
+
 .search-row { display: flex; gap: .5rem; margin-bottom: 1.25rem; flex-wrap: wrap; }
 .search-row input, .search-row select { flex: 1 1 240px; width: auto; }
 .search-row .btn { flex: none; }
@@ -566,6 +581,8 @@ a.tile:hover { border-color: var(--accent); transform: translateY(-2px); }
       <button class="switch-tab" data-screen="admin">Staff console</button>
       <button class="switch-tab" data-screen="admin_users">Accounts</button>
       <button class="switch-tab" data-screen="admin_user">Account detail</button>
+      <button class="switch-tab" data-screen="admin_approvals">Approvals</button>
+      <button class="switch-tab" data-screen="admin_uploads">VM uploads</button>
       <button class="switch-tab" data-screen="admin_sessions">Sessions</button>
       <button class="switch-tab" data-screen="admin_audit">Audit log</button>
 </nav>
@@ -690,7 +707,7 @@ a.tile:hover { border-color: var(--accent); transform: translateY(-2px); }
     <p class="eyebrow">New account</p>
     <h1>Join the range</h1>
     <form onsubmit="return false" method="post" novalidate>
-      <input type="hidden" name="_csrf" value="yfg9DpxHBrBjTnB5T32OAK7hLGZkjSMCRNfCQQahdKU">
+      <input type="hidden" name="_csrf" value="XPfbL0rFmO49uxNAYdkU6DIoodxUJ7Zj4HsAP8xA_8E">
       <label for="name">Full name</label>
       <input id="name" name="name" value="" autocomplete="name" required>
 
@@ -769,7 +786,7 @@ a.tile:hover { border-color: var(--accent); transform: translateY(-2px); }
     <p class="eyebrow">Sign in</p>
     <h1>Back to the range</h1>
     <form onsubmit="return false" method="post" novalidate>
-      <input type="hidden" name="_csrf" value="yfg9DpxHBrBjTnB5T32OAK7hLGZkjSMCRNfCQQahdKU">
+      <input type="hidden" name="_csrf" value="XPfbL0rFmO49uxNAYdkU6DIoodxUJ7Zj4HsAP8xA_8E">
       <label for="username">Username</label>
       <input id="username" name="username" value="" autocomplete="username" required autofocus>
 
@@ -819,7 +836,7 @@ a.tile:hover { border-color: var(--accent); transform: translateY(-2px); }
       
       <a class="masthead-user" href="#" data-inert="1">gthomas</a>
       <form onsubmit="return false" method="post" action="/logout">
-        <input type="hidden" name="_csrf" value="RQ1yLnvVK-0Vd0Uu_yKvhqPC3XwEPWF5jYT8k5Vg7Bo">
+        <input type="hidden" name="_csrf" value="2cSfRN7IgZzEJ2rWq4UN_dcgNrql2uDiLTKsAlZ2Fgw">
         <button class="btn btn-quiet" type="submit">Sign out</button>
       </form>
     
@@ -837,7 +854,7 @@ a.tile:hover { border-color: var(--accent); transform: translateY(-2px); }
     <h1>Change your password</h1>
     
     <form onsubmit="return false" method="post" novalidate>
-      <input type="hidden" name="_csrf" value="RQ1yLnvVK-0Vd0Uu_yKvhqPC3XwEPWF5jYT8k5Vg7Bo">
+      <input type="hidden" name="_csrf" value="2cSfRN7IgZzEJ2rWq4UN_dcgNrql2uDiLTKsAlZ2Fgw">
 
       <label for="current">Current password</label>
       <input id="current" name="current" type="password" autocomplete="current-password" required autofocus>
@@ -882,7 +899,7 @@ a.tile:hover { border-color: var(--accent); transform: translateY(-2px); }
       
       <a class="masthead-user" href="#" data-inert="1">gthomas</a>
       <form onsubmit="return false" method="post" action="/logout">
-        <input type="hidden" name="_csrf" value="RQ1yLnvVK-0Vd0Uu_yKvhqPC3XwEPWF5jYT8k5Vg7Bo">
+        <input type="hidden" name="_csrf" value="2cSfRN7IgZzEJ2rWq4UN_dcgNrql2uDiLTKsAlZ2Fgw">
         <button class="btn btn-quiet" type="submit">Sign out</button>
       </form>
     
@@ -906,7 +923,7 @@ a.tile:hover { border-color: var(--accent); transform: translateY(-2px); }
     <div><dt>Challenges done</dt><dd class="mono figure-lg">0</dd></div>
     <div><dt>Flags captured</dt><dd class="mono figure-lg">6</dd></div>
     <div><dt>Flags played</dt><dd class="mono figure-lg">10</dd></div>
-    <div><dt>Last solved</dt><dd class="mono">11 Aug 2026, 04:41</dd></div>
+    <div><dt>Last solved</dt><dd class="mono">27 Sep 2026, 04:07</dd></div>
   </dl>
 </section>
 
@@ -929,7 +946,7 @@ a.tile:hover { border-color: var(--accent); transform: translateY(-2px); }
           <td class="mono rank">01</td>
           <td>vstergiou</td>
           <td class="mono num">1225</td>
-          <td class="mono soft">12 Aug 2026, 03:27</td>
+          <td class="mono soft">28 Sep 2026, 02:53</td>
           <td class="mono num">13</td>
           <td class="mono num">18</td>
         </tr>
@@ -938,7 +955,7 @@ a.tile:hover { border-color: var(--accent); transform: translateY(-2px); }
           <td class="mono rank">02</td>
           <td>mbates</td>
           <td class="mono num">900</td>
-          <td class="mono soft">12 Aug 2026, 05:18</td>
+          <td class="mono soft">28 Sep 2026, 04:44</td>
           <td class="mono num">11</td>
           <td class="mono num">14</td>
         </tr>
@@ -947,7 +964,7 @@ a.tile:hover { border-color: var(--accent); transform: translateY(-2px); }
           <td class="mono rank">03</td>
           <td>gthomas <span class="tag">you</span></td>
           <td class="mono num">450</td>
-          <td class="mono soft">11 Aug 2026, 04:41</td>
+          <td class="mono soft">27 Sep 2026, 04:07</td>
           <td class="mono num">6</td>
           <td class="mono num">10</td>
         </tr>
@@ -956,7 +973,7 @@ a.tile:hover { border-color: var(--accent); transform: translateY(-2px); }
           <td class="mono rank">03</td>
           <td>lhardie</td>
           <td class="mono num">450</td>
-          <td class="mono soft">11 Aug 2026, 05:18</td>
+          <td class="mono soft">27 Sep 2026, 04:44</td>
           <td class="mono num">7</td>
           <td class="mono num">10</td>
         </tr>
@@ -1152,7 +1169,7 @@ a.tile:hover { border-color: var(--accent); transform: translateY(-2px); }
       
       <a class="masthead-user" href="#" data-inert="1">gthomas</a>
       <form onsubmit="return false" method="post" action="/logout">
-        <input type="hidden" name="_csrf" value="RQ1yLnvVK-0Vd0Uu_yKvhqPC3XwEPWF5jYT8k5Vg7Bo">
+        <input type="hidden" name="_csrf" value="2cSfRN7IgZzEJ2rWq4UN_dcgNrql2uDiLTKsAlZ2Fgw">
         <button class="btn btn-quiet" type="submit">Sign out</button>
       </form>
     
@@ -1247,7 +1264,7 @@ a.tile:hover { border-color: var(--accent); transform: translateY(-2px); }
       
       <a class="masthead-user" href="#" data-inert="1">gthomas</a>
       <form onsubmit="return false" method="post" action="/logout">
-        <input type="hidden" name="_csrf" value="RQ1yLnvVK-0Vd0Uu_yKvhqPC3XwEPWF5jYT8k5Vg7Bo">
+        <input type="hidden" name="_csrf" value="2cSfRN7IgZzEJ2rWq4UN_dcgNrql2uDiLTKsAlZ2Fgw">
         <button class="btn btn-quiet" type="submit">Sign out</button>
       </form>
     
@@ -1287,11 +1304,10 @@ a.tile:hover { border-color: var(--accent); transform: translateY(-2px); }
         
         <p class="mono soft">
           0/2 flags ·
-          0/75 pts ·
-          net-core-l1
+          0/75 pts
         </p>
         <form onsubmit="return false" method="post" action="/themes/challenges/1/launch">
-          <input type="hidden" name="_csrf" value="RQ1yLnvVK-0Vd0Uu_yKvhqPC3XwEPWF5jYT8k5Vg7Bo">
+          <input type="hidden" name="_csrf" value="2cSfRN7IgZzEJ2rWq4UN_dcgNrql2uDiLTKsAlZ2Fgw">
           <button class="btn btn-solid btn-block"
                   type="submit">
             Launch challenge
@@ -1327,7 +1343,7 @@ a.tile:hover { border-color: var(--accent); transform: translateY(-2px); }
              target="_blank" rel="noopener noreferrer">Open console</a>
 
           <form onsubmit="return false" method="post" action="/themes/session/1/flag">
-            <input type="hidden" name="_csrf" value="RQ1yLnvVK-0Vd0Uu_yKvhqPC3XwEPWF5jYT8k5Vg7Bo">
+            <input type="hidden" name="_csrf" value="2cSfRN7IgZzEJ2rWq4UN_dcgNrql2uDiLTKsAlZ2Fgw">
             <label for="flag-2">Submit a flag</label>
             <input id="flag-2" name="flag" class="mono"
                    placeholder="flag{...}" autocomplete="off">
@@ -1362,21 +1378,21 @@ a.tile:hover { border-color: var(--accent); transform: translateY(-2px); }
               <span class="no">
                 no match
               </span>
-              <span class="soft">12 Aug 2026, 05:18</span>
+              <span class="soft">28 Sep 2026, 04:44</span>
             </li>
             
             <li>
               <span class="ok">
                 correct
               </span>
-              <span class="soft">05 Aug 2026, 05:18</span>
+              <span class="soft">21 Sep 2026, 04:44</span>
             </li>
             
           </ul>
           
 
           <form onsubmit="return false" method="post" action="/themes/session/1/close">
-            <input type="hidden" name="_csrf" value="RQ1yLnvVK-0Vd0Uu_yKvhqPC3XwEPWF5jYT8k5Vg7Bo">
+            <input type="hidden" name="_csrf" value="2cSfRN7IgZzEJ2rWq4UN_dcgNrql2uDiLTKsAlZ2Fgw">
             <input type="hidden" name="outcome" value="abandoned">
             <button class="btn btn-quiet btn-block" type="submit">
               Close and abandon
@@ -1406,11 +1422,10 @@ a.tile:hover { border-color: var(--accent); transform: translateY(-2px); }
         
         <p class="mono soft">
           1/2 flags ·
-          50/150 pts ·
-          net-core-l2
+          50/150 pts
         </p>
         <form onsubmit="return false" method="post" action="/themes/challenges/3/launch">
-          <input type="hidden" name="_csrf" value="RQ1yLnvVK-0Vd0Uu_yKvhqPC3XwEPWF5jYT8k5Vg7Bo">
+          <input type="hidden" name="_csrf" value="2cSfRN7IgZzEJ2rWq4UN_dcgNrql2uDiLTKsAlZ2Fgw">
           <button class="btn btn-solid btn-block"
                   type="submit">
             Launch challenge
@@ -1436,11 +1451,10 @@ a.tile:hover { border-color: var(--accent); transform: translateY(-2px); }
         
         <p class="mono soft">
           0/2 flags ·
-          0/175 pts ·
-          net-core-l2
+          0/175 pts
         </p>
         <form onsubmit="return false" method="post" action="/themes/challenges/4/launch">
-          <input type="hidden" name="_csrf" value="RQ1yLnvVK-0Vd0Uu_yKvhqPC3XwEPWF5jYT8k5Vg7Bo">
+          <input type="hidden" name="_csrf" value="2cSfRN7IgZzEJ2rWq4UN_dcgNrql2uDiLTKsAlZ2Fgw">
           <button class="btn btn-solid btn-block"
                   type="submit">
             Launch challenge
@@ -1466,11 +1480,10 @@ a.tile:hover { border-color: var(--accent); transform: translateY(-2px); }
         
         <p class="mono soft">
           0/2 flags ·
-          0/225 pts ·
-          net-core-l2
+          0/225 pts
         </p>
         <form onsubmit="return false" method="post" action="/themes/challenges/5/launch">
-          <input type="hidden" name="_csrf" value="RQ1yLnvVK-0Vd0Uu_yKvhqPC3XwEPWF5jYT8k5Vg7Bo">
+          <input type="hidden" name="_csrf" value="2cSfRN7IgZzEJ2rWq4UN_dcgNrql2uDiLTKsAlZ2Fgw">
           <button class="btn btn-solid btn-block"
                   type="submit">
             Launch challenge
@@ -1496,11 +1509,10 @@ a.tile:hover { border-color: var(--accent); transform: translateY(-2px); }
         
         <p class="mono soft">
           0/2 flags ·
-          0/300 pts ·
-          net-core-l2
+          0/300 pts
         </p>
         <form onsubmit="return false" method="post" action="/themes/challenges/6/launch">
-          <input type="hidden" name="_csrf" value="RQ1yLnvVK-0Vd0Uu_yKvhqPC3XwEPWF5jYT8k5Vg7Bo">
+          <input type="hidden" name="_csrf" value="2cSfRN7IgZzEJ2rWq4UN_dcgNrql2uDiLTKsAlZ2Fgw">
           <button class="btn btn-solid btn-block"
                   type="submit">
             Launch challenge
@@ -1650,7 +1662,7 @@ a.tile:hover { border-color: var(--accent); transform: translateY(-2px); }
       
       <a class="masthead-user" href="#" data-inert="1">bpt</a>
       <form onsubmit="return false" method="post" action="/logout">
-        <input type="hidden" name="_csrf" value="FR44ubVF0WUyWs2DjJCabuJfu-RsAz7YMck4r8BfSFo">
+        <input type="hidden" name="_csrf" value="ZuSrJT98KAoSn4rjHUjYY_4GDbKP6GjGSXLtdA1f2hc">
         <button class="btn btn-quiet" type="submit">Sign out</button>
       </form>
     
@@ -1675,10 +1687,13 @@ a.tile:hover { border-color: var(--accent); transform: translateY(-2px); }
     <p class="lede small">1 machine up.</p>
   </div>
   <dl class="figures">
-    <div><dt>Accounts</dt><dd class="mono figure-lg">6</dd></div>
+    <div><dt>Accounts</dt><dd class="mono figure-lg">7</dd></div>
     <div><dt>Moderators</dt><dd class="mono figure-lg">1</dd></div>
     <div><dt>Admins</dt><dd class="mono figure-lg">1</dd></div>
     <div><dt>Locked out</dt><dd class="mono figure-lg">0</dd></div>
+    
+    <div><dt>Awaiting approval</dt><dd class="mono figure-lg">1</dd></div>
+    
   </dl>
 </section>
 
@@ -1706,7 +1721,7 @@ a.tile:hover { border-color: var(--accent); transform: translateY(-2px); }
         <tr>
           <td>gthomas</td>
           <td>Sweep</td>
-          <td class="mono soft">12 Aug 2026, 05:18</td>
+          <td class="mono soft">28 Sep 2026, 04:44</td>
         </tr>
         
       </tbody>
@@ -1719,6 +1734,15 @@ a.tile:hover { border-color: var(--accent); transform: translateY(-2px); }
       <p class="hint">Where the work happens.</p></header>
     <a class="btn btn-outline btn-block" href="#" data-inert="1">All accounts</a>
     <a class="btn btn-outline btn-block" href="#" data-inert="1">Audit log</a>
+    
+      <a class="btn btn-solid btn-block"
+         href="#" data-inert="1">
+        Approvals (1)
+      </a>
+    
+    
+      <a class="btn btn-outline btn-block" href="#" data-inert="1">VM uploads</a>
+    
     
       <p class="hint">You can grant and remove moderator access from any account page.</p>
     
@@ -1733,7 +1757,7 @@ a.tile:hover { border-color: var(--accent); transform: translateY(-2px); }
       <tbody>
         
         <tr>
-          <td class="mono soft">12 Aug 2026, 05:18</td>
+          <td class="mono soft">28 Sep 2026, 04:44</td>
           <td class="mono">login.success</td>
           <td>bpt</td>
           <td class="mono soft">127.0.0.1</td>
@@ -1741,7 +1765,15 @@ a.tile:hover { border-color: var(--accent); transform: translateY(-2px); }
         </tr>
         
         <tr>
-          <td class="mono soft">12 Aug 2026, 05:18</td>
+          <td class="mono soft">28 Sep 2026, 04:44</td>
+          <td class="mono">account.registered</td>
+          <td>swhitlock</td>
+          <td class="mono soft">127.0.0.1</td>
+          <td class="soft"></td>
+        </tr>
+        
+        <tr>
+          <td class="mono soft">28 Sep 2026, 04:44</td>
           <td class="mono">instance.launched</td>
           <td>gthomas</td>
           <td class="mono soft">127.0.0.1</td>
@@ -1749,7 +1781,7 @@ a.tile:hover { border-color: var(--accent); transform: translateY(-2px); }
         </tr>
         
         <tr>
-          <td class="mono soft">12 Aug 2026, 05:18</td>
+          <td class="mono soft">28 Sep 2026, 04:44</td>
           <td class="mono">login.success</td>
           <td>gthomas</td>
           <td class="mono soft">127.0.0.1</td>
@@ -1790,7 +1822,7 @@ a.tile:hover { border-color: var(--accent); transform: translateY(-2px); }
       
       <a class="masthead-user" href="#" data-inert="1">bpt</a>
       <form onsubmit="return false" method="post" action="/logout">
-        <input type="hidden" name="_csrf" value="FR44ubVF0WUyWs2DjJCabuJfu-RsAz7YMck4r8BfSFo">
+        <input type="hidden" name="_csrf" value="ZuSrJT98KAoSn4rjHUjYY_4GDbKP6GjGSXLtdA1f2hc">
         <button class="btn btn-quiet" type="submit">Sign out</button>
       </form>
     
@@ -1805,7 +1837,7 @@ a.tile:hover { border-color: var(--accent); transform: translateY(-2px); }
 <header class="page-head">
   <p class="eyebrow">Staff console</p>
   <h1>Accounts</h1>
-  <p class="lede">6 shown. Open an account to unlock it, send a reset
+  <p class="lede">7 shown. Open an account to unlock it, send a reset
      link, or change what it can do.</p>
 </header>
 
@@ -1854,6 +1886,15 @@ a.tile:hover { border-color: var(--accent); transform: translateY(-2px); }
         <td class="soft">Year 3</td>
         <td><span class="status status-role-student">Student</span></td>
         <td class="mono num">900</td>
+        <td><span class="soft">active</span></td>
+      </tr>
+      
+      <tr>
+        <td><a href="#" data-inert="1">swhitlock</a></td>
+        <td>Sam Whitlock</td>
+        <td class="soft">Year 2</td>
+        <td><span class="status status-role-student">Student</span></td>
+        <td class="mono num">0</td>
         <td><span class="soft">active</span></td>
       </tr>
       
@@ -1908,7 +1949,7 @@ a.tile:hover { border-color: var(--accent); transform: translateY(-2px); }
       
       <a class="masthead-user" href="#" data-inert="1">bpt</a>
       <form onsubmit="return false" method="post" action="/logout">
-        <input type="hidden" name="_csrf" value="FR44ubVF0WUyWs2DjJCabuJfu-RsAz7YMck4r8BfSFo">
+        <input type="hidden" name="_csrf" value="ZuSrJT98KAoSn4rjHUjYY_4GDbKP6GjGSXLtdA1f2hc">
         <button class="btn btn-quiet" type="submit">Sign out</button>
       </form>
     
@@ -1923,7 +1964,7 @@ a.tile:hover { border-color: var(--accent); transform: translateY(-2px); }
 <header class="page-head">
   <p class="eyebrow"><a href="#" data-inert="1">Accounts</a> · Student</p>
   <h1>lhardie</h1>
-  <p class="lede">Lochlan Hardie · Year 3 · joined 12 Aug 2026, 05:18</p>
+  <p class="lede">Lochlan Hardie · Year 3 · joined 28 Sep 2026, 04:44</p>
 </header>
 
 
@@ -1933,6 +1974,7 @@ a.tile:hover { border-color: var(--accent); transform: translateY(-2px); }
     <h2>Account</h2>
     <dl class="kv">
       <div><dt>Role</dt><dd class="mono">student</dd></div>
+      <div><dt>Approval</dt><dd class="mono">approved</dd></div>
       <div><dt>Score</dt><dd class="mono">450</dd></div>
       <div><dt>Last sign-in</dt><dd class="mono">—</dd></div>
       <div><dt>Failed attempts</dt><dd class="mono">0</dd></div>
@@ -1941,11 +1983,13 @@ a.tile:hover { border-color: var(--accent); transform: translateY(-2px); }
     </dl>
 
     
+
+    
       
 
       
       <form onsubmit="return false" method="post" action="/admin/users/4/reset-password">
-        <input type="hidden" name="_csrf" value="FR44ubVF0WUyWs2DjJCabuJfu-RsAz7YMck4r8BfSFo">
+        <input type="hidden" name="_csrf" value="ZuSrJT98KAoSn4rjHUjYY_4GDbKP6GjGSXLtdA1f2hc">
         <button class="btn btn-outline btn-block" type="submit">Issue a temporary password</button>
       </form>
       <p class="hint">Shown once, on this screen. Hand it over in person — it is not stored
@@ -1955,7 +1999,7 @@ a.tile:hover { border-color: var(--accent); transform: translateY(-2px); }
 
       
       <form onsubmit="return false" method="post" action="/admin/users/4/lock">
-        <input type="hidden" name="_csrf" value="FR44ubVF0WUyWs2DjJCabuJfu-RsAz7YMck4r8BfSFo">
+        <input type="hidden" name="_csrf" value="ZuSrJT98KAoSn4rjHUjYY_4GDbKP6GjGSXLtdA1f2hc">
         <label for="hours">Lock out for (hours)</label>
         <input id="hours" name="hours" class="mono" value="24" inputmode="numeric">
         <button class="btn btn-quiet btn-block" type="submit">Lock this account</button>
@@ -1968,7 +2012,7 @@ a.tile:hover { border-color: var(--accent); transform: translateY(-2px); }
     <h2>Access level</h2>
     
       <form onsubmit="return false" method="post" action="/admin/users/4/role">
-        <input type="hidden" name="_csrf" value="FR44ubVF0WUyWs2DjJCabuJfu-RsAz7YMck4r8BfSFo">
+        <input type="hidden" name="_csrf" value="ZuSrJT98KAoSn4rjHUjYY_4GDbKP6GjGSXLtdA1f2hc">
         <label for="role">Role</label>
         <select id="role" name="role">
           
@@ -2025,6 +2069,374 @@ a.tile:hover { border-color: var(--accent); transform: translateY(-2px); }
 
 
   </section>
+  <section class="screen" id="screen-admin_approvals" hidden>
+    <p class="screen-note"><strong>Approvals.</strong> New registrations waiting on an administrator.</p>
+
+
+<header class="masthead ">
+  
+  <a class="wordmark" href="#" data-inert="1">
+    <span class="wordmark-logo" aria-hidden="true"></span>
+    Pond&nbsp;Sec
+  </a>
+  
+  <nav class="masthead-nav">
+    
+      <a href="#" data-inert="1">Dashboard</a>
+      <a href="#" data-inert="1">Themes</a>
+      
+        <a href="#" data-inert="1">Staff</a>
+      
+      <a class="masthead-user" href="#" data-inert="1">bpt</a>
+      <form onsubmit="return false" method="post" action="/logout">
+        <input type="hidden" name="_csrf" value="ZuSrJT98KAoSn4rjHUjYY_4GDbKP6GjGSXLtdA1f2hc">
+        <button class="btn btn-quiet" type="submit">Sign out</button>
+      </form>
+    
+  </nav>
+</header>
+
+<main class="shell">
+  
+    
+  
+  
+<header class="page-head">
+  <p class="eyebrow">Staff console</p>
+  <h1>Account approvals</h1>
+  <p class="lede">New registrations can sign in but reach nothing until they are approved.
+     Rejected accounts keep their username so nobody can re-register it, and can be
+     approved later if the decision changes.</p>
+</header>
+
+<section class="board">
+  <header class="board-head">
+    <h2>Waiting (1)</h2>
+    <p class="hint">Oldest first.</p>
+  </header>
+  <div class="table-wrap">
+    <table class="grid">
+      <thead>
+        <tr><th>User</th><th>Name</th><th>Year</th><th>Registered</th><th></th></tr>
+      </thead>
+      <tbody>
+        
+        <tr>
+          <td><a href="#" data-inert="1">swhitlock</a></td>
+          <td>Sam Whitlock</td>
+          <td class="soft">Year 2</td>
+          <td class="mono soft">28 Sep 2026, 04:44</td>
+          <td class="decision-cell">
+            <form onsubmit="return false" method="post" action="/admin/users/7/approve">
+              <input type="hidden" name="_csrf" value="ZuSrJT98KAoSn4rjHUjYY_4GDbKP6GjGSXLtdA1f2hc">
+              <button class="btn btn-solid" type="submit">Approve</button>
+            </form>
+            <form onsubmit="return false" method="post" action="/admin/users/7/reject">
+              <input type="hidden" name="_csrf" value="ZuSrJT98KAoSn4rjHUjYY_4GDbKP6GjGSXLtdA1f2hc">
+              <button class="btn btn-quiet" type="submit">Reject</button>
+            </form>
+          </td>
+        </tr>
+        
+      </tbody>
+    </table>
+  </div>
+</section>
+
+<section class="board">
+  <header class="board-head"><h2>Recent decisions</h2></header>
+  <div class="table-wrap">
+    <table class="grid">
+      <thead><tr><th>User</th><th>Outcome</th><th>When</th><th>Decided by</th></tr></thead>
+      <tbody>
+        
+        <tr>
+          <td><a href="#" data-inert="1">bpt</a></td>
+          <td><span class="status status-complete">approved</span></td>
+          <td class="mono soft">28 Sep 2026, 04:44</td>
+          <td>—</td>
+        </tr>
+        
+        <tr>
+          <td><a href="#" data-inert="1">vstergiou</a></td>
+          <td><span class="status status-complete">approved</span></td>
+          <td class="mono soft">28 Sep 2026, 04:44</td>
+          <td>—</td>
+        </tr>
+        
+        <tr>
+          <td><a href="#" data-inert="1">gthomas</a></td>
+          <td><span class="status status-complete">approved</span></td>
+          <td class="mono soft">28 Sep 2026, 04:44</td>
+          <td>—</td>
+        </tr>
+        
+        <tr>
+          <td><a href="#" data-inert="1">lhardie</a></td>
+          <td><span class="status status-complete">approved</span></td>
+          <td class="mono soft">28 Sep 2026, 04:44</td>
+          <td>—</td>
+        </tr>
+        
+        <tr>
+          <td><a href="#" data-inert="1">mbates</a></td>
+          <td><span class="status status-complete">approved</span></td>
+          <td class="mono soft">28 Sep 2026, 04:44</td>
+          <td>—</td>
+        </tr>
+        
+        <tr>
+          <td><a href="#" data-inert="1">demo</a></td>
+          <td><span class="status status-complete">approved</span></td>
+          <td class="mono soft">28 Sep 2026, 04:44</td>
+          <td>—</td>
+        </tr>
+        
+      </tbody>
+    </table>
+  </div>
+</section>
+
+</main>
+
+<footer class="colophon">
+  <span>Pond Sec · teaching environment orchestrator</span>
+  <span class="mono">Proxmox backend: simulate</span>
+</footer>
+
+
+  </section>
+  <section class="screen" id="screen-admin_uploads" hidden>
+    <p class="screen-note"><strong>VM uploads.</strong> Upload a VM image and catalogue it. Administrators only.</p>
+
+
+<header class="masthead ">
+  
+  <a class="wordmark" href="#" data-inert="1">
+    <span class="wordmark-logo" aria-hidden="true"></span>
+    Pond&nbsp;Sec
+  </a>
+  
+  <nav class="masthead-nav">
+    
+      <a href="#" data-inert="1">Dashboard</a>
+      <a href="#" data-inert="1">Themes</a>
+      
+        <a href="#" data-inert="1">Staff</a>
+      
+      <a class="masthead-user" href="#" data-inert="1">bpt</a>
+      <form onsubmit="return false" method="post" action="/logout">
+        <input type="hidden" name="_csrf" value="ZuSrJT98KAoSn4rjHUjYY_4GDbKP6GjGSXLtdA1f2hc">
+        <button class="btn btn-quiet" type="submit">Sign out</button>
+      </form>
+    
+  </nav>
+</header>
+
+<main class="shell">
+  
+    
+  
+  
+<header class="page-head">
+  <p class="eyebrow">Staff console</p>
+  <h1>VM image uploads</h1>
+  <p class="lede">Upload a VM image from your machine, or register a link to one, so it
+     can be catalogued before being turned into a Proxmox template. A pasted link is
+     downloaded and stored the same way a chosen file is.
+     <strong>1 not yet checked.</strong></p>
+</header>
+
+<aside class="resume">
+  <span class="led led-live" aria-hidden="true"></span>
+  <p>All uploads require appropriate quarantine and sanitisation checks as this system
+     does not have any in place currently. Pasting a link also makes this server fetch
+     that address itself, which is a server-side request forgery risk — only paste links
+     you trust, and note that private and internal addresses are refused.</p>
+</aside>
+
+<section class="session-grid">
+  <article class="panel">
+    <h2>Upload an image</h2>
+    <form onsubmit="return false" method="post" action="/admin/uploads/" enctype="multipart/form-data">
+      <input type="hidden" name="_csrf" value="ZuSrJT98KAoSn4rjHUjYY_4GDbKP6GjGSXLtdA1f2hc">
+
+      <label for="vm_file">VM file</label>
+      <input id="vm_file" name="vm_file" type="file" required
+             accept=".vmdk,.vhd,.vhdx,.vdi,.qcow,.qcow2,.raw,.img">
+      <p class="hint">Disk images only: .vmdk, .vhd, .vhdx, .vdi, .qcow, .qcow2, .raw, .img. Up to 8 GB.</p>
+
+      <label for="display_name">Name</label>
+      <input id="display_name" name="display_name" placeholder="Leave blank to use the filename">
+
+      <label for="notes">Notes</label>
+      <input id="notes" name="notes" placeholder="What is on it, where it came from">
+
+      <button class="btn btn-solid btn-block" type="submit">Upload</button>
+      <p class="hint">Large files take a while and the page will sit waiting until the
+         upload finishes. Don't close the tab.</p>
+    </form>
+
+    <h3 class="panel-sub">Or upload from a link</h3>
+    <form onsubmit="return false" method="post" action="/admin/uploads/url">
+      <input type="hidden" name="_csrf" value="ZuSrJT98KAoSn4rjHUjYY_4GDbKP6GjGSXLtdA1f2hc">
+
+      <label for="source_url">Image URL</label>
+      <input id="source_url" name="source_url" type="url" class="mono"
+             placeholder="https://example.org/images/base.qcow2" required>
+
+      <label for="url_name">Name</label>
+      <input id="url_name" name="display_name" placeholder="Leave blank to use the filename">
+
+      <label for="url_notes">Notes</label>
+      <input id="url_notes" name="notes" placeholder="What is on it, where it came from">
+
+      <button class="btn btn-outline btn-block" type="submit">Download and add</button>
+      <p class="hint">The server downloads the image and stores it exactly as if you had
+         picked the file yourself. Same formats and size limit. Large images take a while
+         — the page waits until the download finishes.</p>
+    </form>
+  </article>
+
+  <article class="panel">
+    <h2>Where files go</h2>
+    <dl class="kv">
+      <div><dt>Directory</dt><dd class="mono">pond-sec/instance/uploads</dd></div>
+      <div><dt>Size limit</dt><dd class="mono">8 GB</dd></div>
+      <div><dt>Catalogue</dt><dd class="mono">the_pond.db · vm_uploads</dd></div>
+    </dl>
+    <p class="hint">Each file is saved under a generated name, never the one the browser
+       supplied, and a SHA-256 of the contents is recorded so it can be checked later.
+       The directory is not served over the web.</p>
+
+    <h3 class="panel-sub">Status labels</h3>
+    <ul class="flag-list">
+      <li><span class="led led-live" aria-hidden="true"></span><span>new — nobody has looked at it</span></li>
+      <li><span class="led led-done" aria-hidden="true"></span><span>checked — quarantine and sanitisation done</span></li>
+      <li><span class="led led-off" aria-hidden="true"></span><span>rejected — do not use</span></li>
+    </ul>
+    <p class="hint">These are notes between staff. Nothing in the platform behaves
+       differently based on them.</p>
+  </article>
+</section>
+
+<section class="board">
+  <header class="board-head">
+    <h2>Images</h2>
+    <p class="hint">Newest first.</p>
+  </header>
+  <div class="table-wrap">
+    <table class="grid">
+      <thead>
+        <tr><th>Name</th><th>Source</th><th class="num">Size</th><th>SHA-256</th>
+            <th>Added by</th><th>Last set by</th><th>Status</th><th></th></tr>
+      </thead>
+      <tbody>
+        
+        <tr >
+          <td>
+            Kali 2026.1
+            
+          </td>
+          <td class="soft">
+            kali-2026.vmdk
+            
+          </td>
+          <td class="mono num">2 KB</td>
+          <td class="mono soft" title="e5a00aa9991ac8a5ee3109844d84a55583bd20572ad3ffcd42792f3c36b183ad">e5a00aa9991a…</td>
+          <td>bpt</td>
+          <td class="soft">
+            
+              bpt
+              <span class="mono soft">28 Sep</span>
+              
+                <span class="tag" title="imported to pve, looks fine">note</span>
+              
+            
+          </td>
+          <td><span class="status status-upload-checked">checked</span></td>
+          <td>
+            <div class="decision-cell">
+              <form onsubmit="return false" method="post" action="/admin/uploads/2/status"
+                    class="status-form">
+                <input type="hidden" name="_csrf" value="ZuSrJT98KAoSn4rjHUjYY_4GDbKP6GjGSXLtdA1f2hc">
+                <select name="status" aria-label="Status for Kali 2026.1">
+                  
+                    <option value="new" >new</option>
+                  
+                    <option value="checked" selected>checked</option>
+                  
+                    <option value="rejected" >rejected</option>
+                  
+                </select>
+                <input name="review_notes" placeholder="Note" class="review-note"
+                       aria-label="Note for Kali 2026.1">
+                <button class="btn btn-quiet" type="submit">Save</button>
+              </form>
+              <form onsubmit="return false" method="post" action="/admin/uploads/2/delete">
+                <input type="hidden" name="_csrf" value="ZuSrJT98KAoSn4rjHUjYY_4GDbKP6GjGSXLtdA1f2hc">
+                <button class="btn btn-quiet" type="submit">Delete</button>
+              </form>
+            </div>
+          </td>
+        </tr>
+        
+        <tr class="is-unchecked">
+          <td>
+            Ubuntu 24.04 base
+            
+          </td>
+          <td class="soft">
+            ubuntu-24-base.qcow2
+            
+          </td>
+          <td class="mono num">4 KB</td>
+          <td class="mono soft" title="ea72fecd27e7994b18d0d4ea0b5440272ad28a123639a3e4d0c730983ff3cd03">ea72fecd27e7…</td>
+          <td>bpt</td>
+          <td class="soft">
+            —
+          </td>
+          <td><span class="status status-upload-new">new</span></td>
+          <td>
+            <div class="decision-cell">
+              <form onsubmit="return false" method="post" action="/admin/uploads/1/status"
+                    class="status-form">
+                <input type="hidden" name="_csrf" value="ZuSrJT98KAoSn4rjHUjYY_4GDbKP6GjGSXLtdA1f2hc">
+                <select name="status" aria-label="Status for Ubuntu 24.04 base">
+                  
+                    <option value="new" selected>new</option>
+                  
+                    <option value="checked" >checked</option>
+                  
+                    <option value="rejected" >rejected</option>
+                  
+                </select>
+                <input name="review_notes" placeholder="Note" class="review-note"
+                       aria-label="Note for Ubuntu 24.04 base">
+                <button class="btn btn-quiet" type="submit">Save</button>
+              </form>
+              <form onsubmit="return false" method="post" action="/admin/uploads/1/delete">
+                <input type="hidden" name="_csrf" value="ZuSrJT98KAoSn4rjHUjYY_4GDbKP6GjGSXLtdA1f2hc">
+                <button class="btn btn-quiet" type="submit">Delete</button>
+              </form>
+            </div>
+          </td>
+        </tr>
+        
+      </tbody>
+    </table>
+  </div>
+</section>
+
+</main>
+
+<footer class="colophon">
+  <span>Pond Sec · teaching environment orchestrator</span>
+  <span class="mono">Proxmox backend: simulate</span>
+</footer>
+
+
+  </section>
   <section class="screen" id="screen-admin_sessions" hidden>
     <p class="screen-note"><strong>Sessions.</strong> Close a stuck session and release its machine.</p>
 
@@ -2045,7 +2457,7 @@ a.tile:hover { border-color: var(--accent); transform: translateY(-2px); }
       
       <a class="masthead-user" href="#" data-inert="1">bpt</a>
       <form onsubmit="return false" method="post" action="/logout">
-        <input type="hidden" name="_csrf" value="FR44ubVF0WUyWs2DjJCabuJfu-RsAz7YMck4r8BfSFo">
+        <input type="hidden" name="_csrf" value="ZuSrJT98KAoSn4rjHUjYY_4GDbKP6GjGSXLtdA1f2hc">
         <button class="btn btn-quiet" type="submit">Sign out</button>
       </form>
     
@@ -2078,12 +2490,12 @@ a.tile:hover { border-color: var(--accent); transform: translateY(-2px); }
           <td>gthomas</td>
           <td>Networking</td>
           <td>Sweep</td>
-          <td class="mono soft">12 Aug 2026, 05:18</td>
+          <td class="mono soft">28 Sep 2026, 04:44</td>
           <td class="mono num">9001</td>
           <td>
             
             <form onsubmit="return false" method="post" action="/admin/sessions/1/close">
-              <input type="hidden" name="_csrf" value="FR44ubVF0WUyWs2DjJCabuJfu-RsAz7YMck4r8BfSFo">
+              <input type="hidden" name="_csrf" value="ZuSrJT98KAoSn4rjHUjYY_4GDbKP6GjGSXLtdA1f2hc">
               <button class="btn btn-quiet" type="submit">Close</button>
             </form>
             
@@ -2142,7 +2554,7 @@ a.tile:hover { border-color: var(--accent); transform: translateY(-2px); }
       
       <a class="masthead-user" href="#" data-inert="1">bpt</a>
       <form onsubmit="return false" method="post" action="/logout">
-        <input type="hidden" name="_csrf" value="FR44ubVF0WUyWs2DjJCabuJfu-RsAz7YMck4r8BfSFo">
+        <input type="hidden" name="_csrf" value="ZuSrJT98KAoSn4rjHUjYY_4GDbKP6GjGSXLtdA1f2hc">
         <button class="btn btn-quiet" type="submit">Sign out</button>
       </form>
     
@@ -2165,9 +2577,15 @@ a.tile:hover { border-color: var(--accent); transform: translateY(-2px); }
   <select name="event" aria-label="Filter by event">
     <option value="">All events</option>
     
+      <option value="account.registered" >account.registered</option>
+    
       <option value="instance.launched" >instance.launched</option>
     
       <option value="login.success" >login.success</option>
+    
+      <option value="vm_image.status_changed" >vm_image.status_changed</option>
+    
+      <option value="vm_image.uploaded" >vm_image.uploaded</option>
     
   </select>
   <button class="btn btn-outline" type="submit">Filter</button>
@@ -2179,7 +2597,31 @@ a.tile:hover { border-color: var(--accent); transform: translateY(-2px); }
     <tbody>
       
       <tr>
-        <td class="mono soft">12 Aug 2026, 05:18</td>
+        <td class="mono soft">28 Sep 2026, 04:44</td>
+        <td class="mono">vm_image.status_changed</td>
+        <td>bpt</td>
+        <td class="mono soft">127.0.0.1</td>
+        <td class="soft">Kali 2026.1: new -&gt; checked (imported to pve, looks fine)</td>
+      </tr>
+      
+      <tr>
+        <td class="mono soft">28 Sep 2026, 04:44</td>
+        <td class="mono">vm_image.uploaded</td>
+        <td>bpt</td>
+        <td class="mono soft">127.0.0.1</td>
+        <td class="soft">Kali 2026.1 (2048 bytes, sha256 e5a00aa9991a)</td>
+      </tr>
+      
+      <tr>
+        <td class="mono soft">28 Sep 2026, 04:44</td>
+        <td class="mono">vm_image.uploaded</td>
+        <td>bpt</td>
+        <td class="mono soft">127.0.0.1</td>
+        <td class="soft">Ubuntu 24.04 base (4100 bytes, sha256 ea72fecd27e7)</td>
+      </tr>
+      
+      <tr>
+        <td class="mono soft">28 Sep 2026, 04:44</td>
         <td class="mono">login.success</td>
         <td>bpt</td>
         <td class="mono soft">127.0.0.1</td>
@@ -2187,7 +2629,15 @@ a.tile:hover { border-color: var(--accent); transform: translateY(-2px); }
       </tr>
       
       <tr>
-        <td class="mono soft">12 Aug 2026, 05:18</td>
+        <td class="mono soft">28 Sep 2026, 04:44</td>
+        <td class="mono">account.registered</td>
+        <td>swhitlock</td>
+        <td class="mono soft">127.0.0.1</td>
+        <td class="soft"></td>
+      </tr>
+      
+      <tr>
+        <td class="mono soft">28 Sep 2026, 04:44</td>
         <td class="mono">instance.launched</td>
         <td>gthomas</td>
         <td class="mono soft">127.0.0.1</td>
@@ -2195,7 +2645,7 @@ a.tile:hover { border-color: var(--accent); transform: translateY(-2px); }
       </tr>
       
       <tr>
-        <td class="mono soft">12 Aug 2026, 05:18</td>
+        <td class="mono soft">28 Sep 2026, 04:44</td>
         <td class="mono">login.success</td>
         <td>gthomas</td>
         <td class="mono soft">127.0.0.1</td>

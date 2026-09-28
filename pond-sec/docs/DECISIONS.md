@@ -248,6 +248,174 @@ test suite checks for it.
 
 ---
 
+## Registration needs approval
+
+**Decided:** a new account lands on `pending` and reaches nothing until an
+administrator approves it. It can still sign in, and sees a page saying it is
+waiting.
+
+**Also considered:** refusing the sign-in outright until approved.
+
+**Why not:** somebody waiting on approval can't tell a refusal from a wrong
+password, so they'll keep retrying and hit the three-strikes lockout. Then
+they're locked out *and* unapproved, and staff have two things to fix. Letting
+them in as far as a page that says "waiting" costs nothing, because the gate
+runs before every other view.
+
+**What it costs:** there's now a queue somebody has to watch. If nobody checks
+it, students sit unable to start and have no way of telling you except by
+asking. The console shows a count for that reason.
+
+**Why admin-only rather than moderators too:** approving is deciding who gets
+onto the platform at all, which felt like the same weight as granting a role.
+Easy to loosen later by moving `approve_accounts` in `app/roles.py`; harder to
+tighten once moderators are used to having it.
+
+---
+
+## Challenge tiles no longer name the VM
+
+**Decided:** the challenge list shows the name, the brief and your own progress.
+The backing VM template name is gone.
+
+**Why:** it was a spoiler — `forensics-w10` tells you what the challenge is
+before you open it — and it told students more about our infrastructure naming
+than they need. The view no longer even fetches the column, so it can't leak
+back in by accident.
+
+**What it costs:** nothing for students. Staff who need the VM details find them
+in the console.
+
+---
+
+## VM uploads use SQLAlchemy while the rest of the app doesn't
+
+**Decided:** `app/uploads.py` and `app/orm.py` are SQLAlchemy against a separate
+`the_pond.db`. Everything else still goes through `app/db.py` and raw sqlite3.
+
+**Why:** the group's newer database work is already SQLAlchemy with a `pond`
+bind key, and uploads are new, so there was no reason to add to the old layer.
+`app/orm.py` mirrors the group's `db/orm.py` exactly so those model files work
+here unchanged.
+
+**What it costs:** two database layers, two SQLite files, and no way to join
+across them. Temporary, and on the to-do list. Anyone new to the code has to be
+told which layer owns what, which is why both module docstrings say so.
+
+---
+
+## VM uploads accept disk images only
+
+**Decided:** `.vmdk`, `.vhd`, `.vhdx`, `.vdi`, `.qcow`, `.qcow2`, `.raw` and
+`.img`. Anything else is refused.
+
+**Why those:** the formats the group expects to move between VMware,
+VirtualBox, Hyper-V and Proxmox. `.img` is in because it is the same thing as
+`.raw` under another name and someone will inevitably have one.
+
+**A mismatch is flagged, not refused.** The extension proves nothing on its own,
+because the client picks the filename, so the first bytes are read and compared
+against it. If they disagree the row is marked and the uploader told, rather than
+the upload being rejected: the file may be perfectly good and only the name
+wrong, and an administrator is better placed to judge that than a header check
+is. Raw images have no signature at all, so "no signature" is a normal answer
+rather than a failure.
+
+**What it still costs:** a determined administrator could rename anything to
+`.qcow2` and upload it. That is accepted, because the people with this permission
+are the ones running the platform. The controls that matter do not depend on the
+format: files land outside the web root and are never served back, so nothing
+uploaded can be requested by URL; the stored name is generated rather than taken
+from the browser; there is a size cap enforced while streaming; and every upload
+is audited by name with a SHA-256 of the contents.
+
+---
+
+## Pasted URLs are downloaded, with the SSRF guards written down
+
+**Decided:** pasting a URL downloads the image and stores it exactly as a chosen
+file would. The client asked for the two buttons to behave the same way, and
+they now do.
+
+**The risk this creates, and what handles it:** making a server fetch a URL a
+user supplied is server-side request forgery. This server is an awkward place
+for it — same network as the Proxmox cluster, and the process holds an API
+token — so an unguarded version would let anyone with the uploads page make the
+platform request `https://10.1.21.151:8006/api2/json/...` or a metadata endpoint
+and store the reply.
+
+`app/fetcher.py` therefore keeps all of it in one reviewable place: http and
+https only; the hostname resolved and **every** address it resolves to checked
+against private, loopback, link-local, multicast and reserved ranges before
+connecting; redirects followed by hand with the same check on each hop, because
+a public host redirecting to 127.0.0.1 would otherwise defeat the first check;
+a hop limit; connect and read timeouts; and a size cap enforced while streaming.
+
+**Why private addresses are refused by default:** a teaching network may well
+host images internally, so `UPLOAD_FETCH_ALLOW_PRIVATE=1` exists — but as a
+conscious switch with its own setting and its own comment, rather than a default
+that quietly opens the platform up. Loopback and link-local stay refused even
+then: those are never a file server, and they are exactly the two that turn this
+into a way to read the server's own secrets.
+
+**What it still costs:** with the setting on, anyone who can reach the uploads
+page can make the platform request any internal address and store the reply.
+That is administrator-only and audited, but it is a real capability and should
+be understood before the switch is flipped.
+
+---
+
+## Unapproved accounts are told their password was right
+
+**Decided:** signing in to a pending account says so explicitly, rather than
+just bouncing to the waiting page.
+
+**Why:** without it the person can't tell "waiting for approval" from "typed my
+password wrong", so they retry, and three retries locks the account. Then
+they're locked out *and* unapproved and staff have two things to fix.
+
+**Is this an information leak?** Slightly — it confirms the password for an
+account that can't be used. It was judged worth it because the account is inert
+until an administrator approves it, and the alternative pushed real students
+into lockouts. A wrong password on a pending account still reads as a wrong
+password, which the tests check.
+
+---
+
+## Quarantine and sanitisation happen in Proxmox, not here
+
+**Decided:** the platform accepts an image, catalogues it, and does nothing
+else to it. No quarantine, no scanning, no sanitisation. That work happens in
+Proxmox.
+
+**Why:** Proxmox is where the image actually becomes a running machine, and it
+is where the isolation exists. Building a second, weaker version of the same
+check in the web app would mean two places to maintain and a real risk that
+somebody trusts the weaker one.
+
+**What it costs, stated plainly because it should not be a surprise later:**
+
+- An uploaded image is not scanned. The extension is checked and the first few
+  bytes are read, which catches mistakes, not a determined administrator.
+- A registered URL is not fetched or checked at all. It is a link in a table.
+- `status` is a label staff set for each other. Nothing behaves differently
+  based on it — an image marked `checked` is not treated differently by any code
+  path.
+
+So anything reaching Proxmox from here is untrusted. That is fine as long as
+somebody knows it, which is why it is written in the module docstring, on the
+uploads page, and in the README to-do list rather than left implicit.
+
+**Still to settle:** who does the checking, and what counts as done. Worth
+agreeing before the handover, not after.
+
+**Why the server still does not fetch a registered URL:** that is a separate
+question from quarantine and Proxmox does not help with it. Downloading an
+arbitrary URL happens on the web server, inside the trusted network, from a
+process holding a Proxmox API token — see the decision below.
+
+---
+
 ## Still open
 
 These aren't decided yet, and they're the ones to bring to the next group
@@ -263,5 +431,8 @@ meeting:
 - [ ] **The Proxmox API token.** Currently `root@pam!root`, which is far more
       access than the app needs. A dedicated user with five specific privileges
       would be better, and it's about two minutes of work in the Proxmox UI.
+- [ ] **Fetching images by URL safely.** Registered links have to be downloaded
+      by hand for now. See the decision above for what the fetch would need.
+- [ ] **Merging the two database layers.** Which way, and when.
 - [ ] **Flag generation.** Shared static flags now. Per-challenge is the
       minimum; per-VM generated flags would be better and are more work.

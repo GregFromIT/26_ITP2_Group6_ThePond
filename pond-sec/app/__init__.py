@@ -4,13 +4,13 @@ Start here. create_app() is the only place the pieces are wired together, so
 this file is the map of the codebase:
 
     config.py      settings, all environment-overridable
-    identity.py    User/UserCredential/Role read/write, dict-shaped for
-                  templates - the boundary between the real schema and
-                  everything downstream of g.user
+    db.py          SQLite connections, init-db / seed-db commands
     csrf.py        per-session CSRF tokens (enforced on every unsafe request)
     auth.py        /register /login /logout /forgot-password /reset-password
     roles.py       who may do what — the whole access policy, in one matrix
-    admin.py       /admin staff console: accounts, roles, sessions, audit log
+    admin.py       /admin staff console: accounts, approvals, roles, sessions, audit
+    orm.py         SQLAlchemy setup, shared with the group's db/ model files
+    uploads.py     /admin/uploads VM image uploads (SQLAlchemy)
     dashboard.py   / and /dashboard
     themes.py      /themes/... themes, challenges and the VM session lifecycle
     scoring.py     flag grading and every leaderboard
@@ -36,20 +36,39 @@ that ordering in mind.
 import os
 import secrets
 import stat
-import sys
-from pathlib import Path
 from datetime import datetime, timedelta, timezone
 
 from flask import Flask, current_app, redirect, render_template, request, session
 from werkzeug.middleware.proxy_fix import ProxyFix
+from werkzeug.routing import IntegerConverter
 
-_REPO_ROOT = Path(__file__).resolve().parents[2]
-if str(_REPO_ROOT) not in sys.path:
-    sys.path.insert(0, str(_REPO_ROOT))
-from db.orm import db as sqla_db  # noqa: E402
- 
-from . import admin, audit, auth, csrf, dashboard, roles, themes
+from . import admin, audit, auth, csrf, dashboard, db, roles, themes, uploads
 from .config import Config
+
+
+# Found by tools/fuzz.py: Flask's built-in <int:> converter accepts a Python
+# integer of any size, because Python integers have no ceiling. SQLite stops at
+# a signed 64-bit value, so a URL like /themes/999999999999999999999 reached a
+# query and raised OverflowError, which surfaced as a 500. Any signed-in user
+# could produce one from the address bar.
+#
+# Bounding the converter fixes every route at once, rather than every view
+# having to remember to range-check its own parameter. An out-of-range id now
+# fails to match the route at all and gets the ordinary 404, which is the
+# correct answer for an id that cannot exist.
+SQLITE_MAX_INT = 2 ** 63 - 1
+
+
+class BoundedIntConverter(IntegerConverter):
+    """<int:> that refuses anything SQLite could not hold."""
+
+    def to_python(self, value):
+        number = super().to_python(value)
+        if number > SQLITE_MAX_INT:
+            from werkzeug.routing import ValidationError
+
+            raise ValidationError()
+        return number
 
 
 def create_app(test_config=None):
@@ -64,7 +83,15 @@ def create_app(test_config=None):
     if test_config:
         app.config.update(test_config)
 
+    # Replace the built-in converter before any blueprint is registered, so
+    # every <int:...> in the app picks up the bound.
+    app.url_map.converters["int"] = BoundedIntConverter
+
     os.makedirs(app.instance_path, exist_ok=True)
+
+    database = app.config["DATABASE"]
+    if not os.path.isabs(database):
+        app.config["DATABASE"] = os.path.join(app.root_path, "..", database)
 
     app.config["SECRET_KEY"] = resolve_secret_key(app)
 
@@ -78,23 +105,25 @@ def create_app(test_config=None):
             x_host=app.config["TRUSTED_PROXIES"],
         )
 
-    app.config.setdefault("SQLALCHEMY_BINDS", {"pond": f"sqlite:///{_REPO_ROOT / 'the_pond.db'}"})
-    app.config.setdefault("SQLALCHEMY_TRACK_MODIFICATIONS", False)
-    sqla_db.init_app(app)
+    db.init_app(app)
+    # Before csrf: the upload size cap has to be raised before anything reads
+    # request.form, and the CSRF check is the first thing that does.
+    uploads.init_app(app)    # SQLAlchemy bind, vm_uploads table, upload size cap
     csrf.init_app(app)
     roles.init_app(app)      # exposes can() to templates
     admin.init_app(app)      # registers the set-role CLI command
-    themes.sock.init_app(app)   # WebSocket console relay - see themes.console_relay
 
     app.before_request(force_https)
     app.before_request(auth.load_logged_in_user)
-    app.before_request(auth.force_password_change)   # must run AFTER the loader
+    app.before_request(auth.gate_unapproved_accounts)  # must run AFTER the loader
+    app.before_request(auth.force_password_change)     # and after the gate
     app.after_request(security_headers)
 
     app.register_blueprint(dashboard.bp)
     app.register_blueprint(auth.bp)
     app.register_blueprint(themes.bp)
     app.register_blueprint(admin.bp)
+    app.register_blueprint(uploads.bp)
 
     register_filters(app)
     register_error_handlers(app)
@@ -264,14 +293,13 @@ def register_filters(app):
     """
     @app.template_filter("stamp")
     def stamp(value, fallback="—"):
-       if not value:
-           return fallback
-       if isinstance(value, str):
-           try:
-               value = datetime.strptime(value[:19], "%Y-%m-%d %H:%M:%S")
-           except ValueError:
-               return value
-       return value.strftime("%d %b %Y, %H:%M")
+        """UTC string from SQLite to something readable."""
+        if not value:
+            return fallback
+        try:
+            return datetime.strptime(value[:19], "%Y-%m-%d %H:%M:%S").strftime("%d %b %Y, %H:%M")
+        except ValueError:
+            return value
 
     @app.template_filter("duration")
     def duration(seconds, fallback="—"):

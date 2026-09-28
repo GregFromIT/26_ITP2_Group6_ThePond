@@ -1,0 +1,151 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 1460 1270" width="1460" height="1270">
+<rect width="1460" height="1270" fill="#edf0ee"/>
+<defs>
+<marker id="open" markerWidth="10" markerHeight="10" refX="9" refY="3.5" orient="auto"><path d="M0,0 L9,3.5 L0,7" fill="none" stroke="#55676f" stroke-width="1.4"/></marker>
+<marker id="tri" markerWidth="12" markerHeight="12" refX="11" refY="5" orient="auto"><path d="M0,0 L11,5 L0,10 Z" fill="#fff" stroke="#16232b" stroke-width="1.4"/></marker>
+</defs>
+<text x="40" y="46" font-family="Space Grotesk, sans-serif" font-size="24" font-weight="700" fill="#16232b">Pond Sec — use case diagram</text>
+<rect x="300" y="60" width="580" height="1115" rx="4" fill="#f7f9f8" stroke="#9fada7" stroke-width="1.5"/>
+<text x="590.0" y="88" text-anchor="middle" font-family="IBM Plex Mono, monospace" font-size="13" letter-spacing="2" fill="#55676f">POND SEC</text>
+<text x="318" y="265" transform="rotate(-90 318 265)" font-family="IBM Plex Mono, monospace" font-size="10" letter-spacing="2" fill="#9fada7">ACCOUNTS</text>
+<text x="318" y="660" transform="rotate(-90 318 660)" font-family="IBM Plex Mono, monospace" font-size="10" letter-spacing="2" fill="#9fada7">CHALLENGES</text>
+<text x="318" y="1010" transform="rotate(-90 318 1010)" font-family="IBM Plex Mono, monospace" font-size="10" letter-spacing="2" fill="#9fada7">STAFF CONSOLE</text>
+<line x1="177" y1="394" x2="335" y2="120" stroke="#16232b" stroke-width="1.2" opacity="0.55"/>
+<line x1="177" y1="394" x2="335" y2="195" stroke="#16232b" stroke-width="1.2" opacity="0.55"/>
+<line x1="177" y1="394" x2="335" y2="270" stroke="#16232b" stroke-width="1.2" opacity="0.55"/>
+<line x1="177" y1="394" x2="335" y2="350" stroke="#16232b" stroke-width="1.2" opacity="0.55"/>
+<line x1="177" y1="394" x2="335" y2="435" stroke="#16232b" stroke-width="1.2" opacity="0.55"/>
+<line x1="177" y1="394" x2="335" y2="520" stroke="#16232b" stroke-width="1.2" opacity="0.55"/>
+<line x1="177" y1="394" x2="335" y2="595" stroke="#16232b" stroke-width="1.2" opacity="0.55"/>
+<line x1="177" y1="394" x2="335" y2="670" stroke="#16232b" stroke-width="1.2" opacity="0.55"/>
+<line x1="177" y1="394" x2="335" y2="750" stroke="#16232b" stroke-width="1.2" opacity="0.55"/>
+<line x1="177" y1="874" x2="335" y2="860" stroke="#16232b" stroke-width="1.2" opacity="0.55"/>
+<line x1="177" y1="874" x2="335" y2="945" stroke="#16232b" stroke-width="1.2" opacity="0.55"/>
+<line x1="177" y1="874" x2="335" y2="1025" stroke="#16232b" stroke-width="1.2" opacity="0.55"/>
+<line x1="177" y1="874" x2="635" y2="860" stroke="#16232b" stroke-width="1.2" opacity="0.55"/>
+<line x1="177" y1="874" x2="635" y2="945" stroke="#16232b" stroke-width="1.2" opacity="0.55"/>
+<line x1="177" y1="1099" x2="635" y2="1025" stroke="#16232b" stroke-width="1.2" opacity="0.55"/>
+<line x1="177" y1="1099" x2="335" y2="1105" stroke="#16232b" stroke-width="1.2" opacity="0.55"/>
+<line x1="177" y1="1099" x2="635" y2="1105" stroke="#16232b" stroke-width="1.2" opacity="0.55"/>
+<line x1="1113" y1="614" x2="835" y2="520" stroke="#16232b" stroke-width="1.2" opacity="0.55"/>
+<line x1="1113" y1="614" x2="835" y2="750" stroke="#16232b" stroke-width="1.2" opacity="0.55"/>
+<line x1="545" y1="520" x2="635" y2="520" stroke="#55676f" stroke-width="1.4" stroke-dasharray="6 4" marker-end="url(#open)"/>
+<text x="590.0" y="512.0" text-anchor="middle" font-family="IBM Plex Mono, monospace" font-size="11" fill="#55676f">&#171;include&#187;</text>
+<line x1="545" y1="670" x2="635" y2="670" stroke="#55676f" stroke-width="1.4" stroke-dasharray="6 4" marker-end="url(#open)"/>
+<text x="590.0" y="662.0" text-anchor="middle" font-family="IBM Plex Mono, monospace" font-size="11" fill="#55676f">&#171;include&#187;</text>
+<line x1="545" y1="750" x2="635" y2="750" stroke="#55676f" stroke-width="1.4" stroke-dasharray="6 4" marker-end="url(#open)"/>
+<text x="590.0" y="742.0" text-anchor="middle" font-family="IBM Plex Mono, monospace" font-size="11" fill="#55676f">&#171;include&#187;</text>
+<line x1="635" y1="195" x2="545" y2="195" stroke="#b8701a" stroke-width="1.4" stroke-dasharray="6 4" marker-end="url(#open)"/>
+<text x="590.0" y="187" text-anchor="middle" font-family="IBM Plex Mono, monospace" font-size="11" fill="#b8701a">&#171;extend&#187;</text>
+<line x1="155" y1="818" x2="155" y2="460" stroke="#16232b" stroke-width="1.5" marker-end="url(#tri)"/>
+<line x1="155" y1="1043" x2="155" y2="940" stroke="#16232b" stroke-width="1.5" marker-end="url(#tri)"/>
+<ellipse cx="440" cy="120" rx="105" ry="34" fill="#fff" stroke="#16232b" stroke-width="1.5"/>
+<text x="440" y="125" text-anchor="middle" font-family="Inter, sans-serif" font-size="14" fill="#16232b">Register account</text>
+<ellipse cx="440" cy="195" rx="105" ry="34" fill="#fff" stroke="#16232b" stroke-width="1.5"/>
+<text x="440" y="200" text-anchor="middle" font-family="Inter, sans-serif" font-size="14" fill="#16232b">Sign in</text>
+<ellipse cx="440" cy="270" rx="105" ry="34" fill="#fff" stroke="#16232b" stroke-width="1.5"/>
+<text x="440" y="275" text-anchor="middle" font-family="Inter, sans-serif" font-size="14" fill="#16232b">Change own password</text>
+<ellipse cx="440" cy="350" rx="105" ry="40" fill="#fff" stroke="#16232b" stroke-width="1.5"/>
+<text x="440" y="346" text-anchor="middle" font-family="Inter, sans-serif" font-size="14" fill="#16232b">View dashboard</text>
+<text x="440" y="364" text-anchor="middle" font-family="Inter, sans-serif" font-size="14" fill="#16232b">and leaderboards</text>
+<ellipse cx="440" cy="435" rx="105" ry="40" fill="#fff" stroke="#16232b" stroke-width="1.5"/>
+<text x="440" y="431" text-anchor="middle" font-family="Inter, sans-serif" font-size="14" fill="#16232b">Browse themes</text>
+<text x="440" y="449" text-anchor="middle" font-family="Inter, sans-serif" font-size="14" fill="#16232b">and challenges</text>
+<ellipse cx="440" cy="520" rx="105" ry="34" fill="#fff" stroke="#16232b" stroke-width="1.5"/>
+<text x="440" y="525" text-anchor="middle" font-family="Inter, sans-serif" font-size="14" fill="#16232b">Launch challenge</text>
+<ellipse cx="440" cy="595" rx="105" ry="34" fill="#fff" stroke="#16232b" stroke-width="1.5"/>
+<text x="440" y="600" text-anchor="middle" font-family="Inter, sans-serif" font-size="14" fill="#16232b">Open VM console</text>
+<ellipse cx="440" cy="670" rx="105" ry="34" fill="#fff" stroke="#16232b" stroke-width="1.5"/>
+<text x="440" y="675" text-anchor="middle" font-family="Inter, sans-serif" font-size="14" fill="#16232b">Submit flag</text>
+<ellipse cx="440" cy="750" rx="105" ry="34" fill="#fff" stroke="#16232b" stroke-width="1.5"/>
+<text x="440" y="755" text-anchor="middle" font-family="Inter, sans-serif" font-size="14" fill="#16232b">Close challenge</text>
+<ellipse cx="735" cy="195" rx="100" ry="40" fill="#fff" stroke="#16232b" stroke-width="1.5"/>
+<text x="735" y="191" text-anchor="middle" font-family="Inter, sans-serif" font-size="14" fill="#16232b">Lock account after</text>
+<text x="735" y="209" text-anchor="middle" font-family="Inter, sans-serif" font-size="14" fill="#16232b">3 failures</text>
+<ellipse cx="735" cy="520" rx="100" ry="34" fill="#fff" stroke="#16232b" stroke-width="1.5"/>
+<text x="735" y="525" text-anchor="middle" font-family="Inter, sans-serif" font-size="14" fill="#16232b">Clone and start VM</text>
+<ellipse cx="735" cy="670" rx="100" ry="40" fill="#fff" stroke="#16232b" stroke-width="1.5"/>
+<text x="735" y="666" text-anchor="middle" font-family="Inter, sans-serif" font-size="14" fill="#16232b">Grade flag,</text>
+<text x="735" y="684" text-anchor="middle" font-family="Inter, sans-serif" font-size="14" fill="#16232b">award points</text>
+<ellipse cx="735" cy="750" rx="100" ry="34" fill="#fff" stroke="#16232b" stroke-width="1.5"/>
+<text x="735" y="755" text-anchor="middle" font-family="Inter, sans-serif" font-size="14" fill="#16232b">Stop and destroy VM</text>
+<ellipse cx="440" cy="860" rx="105" ry="40" fill="#fff" stroke="#16232b" stroke-width="1.5"/>
+<text x="440" y="856" text-anchor="middle" font-family="Inter, sans-serif" font-size="14" fill="#16232b">View accounts</text>
+<text x="440" y="874" text-anchor="middle" font-family="Inter, sans-serif" font-size="14" fill="#16232b">and sessions</text>
+<ellipse cx="440" cy="945" rx="105" ry="40" fill="#fff" stroke="#16232b" stroke-width="1.5"/>
+<text x="440" y="941" text-anchor="middle" font-family="Inter, sans-serif" font-size="14" fill="#16232b">Unlock or lock</text>
+<text x="440" y="959" text-anchor="middle" font-family="Inter, sans-serif" font-size="14" fill="#16232b">an account</text>
+<ellipse cx="440" cy="1025" rx="105" ry="34" fill="#fff" stroke="#16232b" stroke-width="1.5"/>
+<text x="440" y="1030" text-anchor="middle" font-family="Inter, sans-serif" font-size="14" fill="#16232b">Force-close a session</text>
+<ellipse cx="735" cy="860" rx="100" ry="40" fill="#fff" stroke="#16232b" stroke-width="1.5"/>
+<text x="735" y="856" text-anchor="middle" font-family="Inter, sans-serif" font-size="14" fill="#16232b">Issue temporary</text>
+<text x="735" y="874" text-anchor="middle" font-family="Inter, sans-serif" font-size="14" fill="#16232b">password</text>
+<ellipse cx="735" cy="945" rx="100" ry="34" fill="#fff" stroke="#16232b" stroke-width="1.5"/>
+<text x="735" y="950" text-anchor="middle" font-family="Inter, sans-serif" font-size="14" fill="#16232b">Read audit log</text>
+<ellipse cx="735" cy="1025" rx="100" ry="40" fill="#fff" stroke="#16232b" stroke-width="1.5"/>
+<text x="735" y="1021" text-anchor="middle" font-family="Inter, sans-serif" font-size="14" fill="#16232b">Grant or remove</text>
+<text x="735" y="1039" text-anchor="middle" font-family="Inter, sans-serif" font-size="14" fill="#16232b">moderator / admin</text>
+<ellipse cx="440" cy="1105" rx="105" ry="40" fill="#fff" stroke="#16232b" stroke-width="1.5"/>
+<text x="440" y="1101" text-anchor="middle" font-family="Inter, sans-serif" font-size="14" fill="#16232b">Approve or reject</text>
+<text x="440" y="1119" text-anchor="middle" font-family="Inter, sans-serif" font-size="14" fill="#16232b">registration</text>
+<ellipse cx="735" cy="1105" rx="100" ry="34" fill="#fff" stroke="#16232b" stroke-width="1.5"/>
+<text x="735" y="1110" text-anchor="middle" font-family="Inter, sans-serif" font-size="14" fill="#16232b">Upload VM image</text>
+
+<g stroke="#16232b" stroke-width="1.8" fill="none">
+  <circle cx="155" cy="366" r="12" fill="#fff"/>
+  <line x1="155" y1="378" x2="155" y2="408"/>
+  <line x1="137" y1="388" x2="173" y2="388"/>
+  <line x1="155" y1="408" x2="141" y2="432"/>
+  <line x1="155" y1="408" x2="169" y2="432"/>
+</g>
+<text x="155" y="452" text-anchor="middle" font-family="Inter, sans-serif"
+      font-size="15" font-weight="600" fill="#16232b">Student</text>
+
+<g stroke="#16232b" stroke-width="1.8" fill="none">
+  <circle cx="155" cy="846" r="12" fill="#fff"/>
+  <line x1="155" y1="858" x2="155" y2="888"/>
+  <line x1="137" y1="868" x2="173" y2="868"/>
+  <line x1="155" y1="888" x2="141" y2="912"/>
+  <line x1="155" y1="888" x2="169" y2="912"/>
+</g>
+<text x="155" y="932" text-anchor="middle" font-family="Inter, sans-serif"
+      font-size="15" font-weight="600" fill="#16232b">Moderator</text>
+
+<g stroke="#16232b" stroke-width="1.8" fill="none">
+  <circle cx="155" cy="1071" r="12" fill="#fff"/>
+  <line x1="155" y1="1083" x2="155" y2="1113"/>
+  <line x1="137" y1="1093" x2="173" y2="1093"/>
+  <line x1="155" y1="1113" x2="141" y2="1137"/>
+  <line x1="155" y1="1113" x2="169" y2="1137"/>
+</g>
+<text x="155" y="1157" text-anchor="middle" font-family="Inter, sans-serif"
+      font-size="15" font-weight="600" fill="#16232b">Administrator</text>
+
+<g stroke="#16232b" stroke-width="1.8" fill="none">
+  <circle cx="1135" cy="586" r="12" fill="#fff"/>
+  <line x1="1135" y1="598" x2="1135" y2="628"/>
+  <line x1="1117" y1="608" x2="1153" y2="608"/>
+  <line x1="1135" y1="628" x2="1121" y2="652"/>
+  <line x1="1135" y1="628" x2="1149" y2="652"/>
+</g>
+<text x="1135" y="672" text-anchor="middle" font-family="Inter, sans-serif"
+      font-size="15" font-weight="600" fill="#16232b">Proxmox VE</text>
+<rect x="980" y="800" width="300" height="126" rx="3" fill="#fff" stroke="#9fada7"/>
+<text x="994" y="824" font-family="IBM Plex Mono, monospace" font-size="10" letter-spacing="1.5" fill="#55676f">KEY</text>
+<line x1="994" y1="848" x2="1044" y2="848" stroke="#16232b" stroke-width="1.2" opacity="0.55"/>
+<text x="1056" y="852" font-family="Inter, sans-serif" font-size="12" fill="#16232b">association</text>
+<line x1="994" y1="870" x2="1044" y2="870" stroke="#55676f" stroke-width="1.4" stroke-dasharray="6 4" marker-end="url(#open)"/>
+<text x="1056" y="874" font-family="Inter, sans-serif" font-size="12" fill="#16232b">«include»</text>
+<line x1="994" y1="892" x2="1044" y2="892" stroke="#b8701a" stroke-width="1.4" stroke-dasharray="6 4" marker-end="url(#open)"/>
+<text x="1056" y="896" font-family="Inter, sans-serif" font-size="12" fill="#16232b">«extend»</text>
+<line x1="994" y1="914" x2="1044" y2="914" stroke="#16232b" stroke-width="1.5" marker-end="url(#tri)"/>
+<text x="1056" y="918" font-family="Inter, sans-serif" font-size="12" fill="#16232b">generalisation</text>
+<rect x="980" y="960" width="300" height="128" rx="3" fill="#fff" stroke="#9fada7"/>
+<text x="994" y="986" font-family="Inter, sans-serif" font-size="12" fill="#55676f">Moderators inherit every</text>
+<text x="994" y="1002" font-family="Inter, sans-serif" font-size="12" fill="#55676f">student use case, and appear</text>
+<text x="994" y="1018" font-family="Inter, sans-serif" font-size="12" fill="#55676f">on the leaderboards.</text>
+<text x="994" y="1034" font-family="Inter, sans-serif" font-size="12" fill="#55676f"></text>
+<text x="994" y="1050" font-family="Inter, sans-serif" font-size="12" fill="#55676f">Administrators inherit every</text>
+<text x="994" y="1066" font-family="Inter, sans-serif" font-size="12" fill="#55676f">moderator use case, but are</text>
+<text x="994" y="1082" font-family="Inter, sans-serif" font-size="12" fill="#55676f">excluded from every board.</text>
+</svg>

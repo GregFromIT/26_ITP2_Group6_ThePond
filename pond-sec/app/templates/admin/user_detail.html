@@ -21,6 +21,7 @@
     <h2>Account</h2>
     <dl class="kv">
       <div><dt>Role</dt><dd class="mono">{{ target['role'] }}</dd></div>
+      <div><dt>Approval</dt><dd class="mono">{{ target['approval_status'] }}</dd></div>
       <div><dt>Score</dt><dd class="mono">{{ target['points'] }}</dd></div>
       <div><dt>Last sign-in</dt><dd class="mono">{{ target['last_login_at']|stamp }}</dd></div>
       <div><dt>Failed attempts</dt><dd class="mono">{{ target['failed_attempts'] }}</dd></div>
@@ -29,6 +30,14 @@
       <div><dt>Role set</dt><dd class="mono">{{ target['role_set_at']|stamp }}</dd></div>
       {% endif %}
     </dl>
+
+    {% if can('approve_accounts') and target['approval_status'] != 'approved' %}
+    <form method="post" action="{{ url_for('admin.approve', user_id=target['user_id']) }}">
+      <input type="hidden" name="_csrf" value="{{ csrf_token() }}">
+      <button class="btn btn-solid btn-block" type="submit">Approve this account</button>
+    </form>
+    <p class="hint">Until this is approved they can sign in but reach nothing else.</p>
+    {% endif %}
 
     {% if may_act %}
       {% if target['locked_until'] %}

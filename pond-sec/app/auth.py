@@ -33,7 +33,8 @@ from flask import (
     Blueprint, current_app, flash, g, redirect, render_template, request, session, url_for
 )
 
-from . import audit, csrf, identity, throttle
+from . import audit, csrf, throttle
+from .db import execute, query, utcnow
 from .security import (
     USERNAME_RE, clear_lockout, lockout_remaining, password_matches, password_problems,
     register_failure, set_password,
@@ -73,7 +74,7 @@ def load_logged_in_user():
     g.user = (
         None
         if user_id is None
-        else identity.get_user_row(user_id)
+        else query("SELECT * FROM user WHERE user_id = ?", (user_id,), one=True)
     )
     if user_id is not None and g.user is None:
         session.clear()
@@ -85,6 +86,23 @@ def load_logged_in_user():
         session.clear()
         g.user = None
         flash("This account is locked. Ask your course staff to unlock it.", "error")
+
+
+def gate_unapproved_accounts():
+    """Hold a signed-in account on the waiting page until it is approved.
+
+    Registered as a before_request hook AFTER load_logged_in_user. A pending or
+    rejected account keeps a valid session on purpose: it can reach the waiting
+    page and sign out, and nothing else. That way the person gets a clear answer
+    instead of a login failure they would read as a wrong password.
+    """
+    if g.get("user") is None or g.user["approval_status"] == "approved":
+        return None
+    allowed = {"auth.pending", "auth.logout", "static"}
+    if request.endpoint in allowed:
+        return None
+    flash("That part of the platform opens up once your account is approved.", "info")
+    return redirect(url_for("auth.pending"))
 
 
 def force_password_change():
@@ -155,7 +173,7 @@ def register():
 
         # A taken username is stated plainly: usernames are printed on the
         # leaderboards, so this reveals nothing that is not already public.
-        if identity.username_taken(form["username"]):
+        if query("SELECT 1 FROM user WHERE username = ?", (form["username"],), one=True):
             errors.append("That username is taken.")
 
         if errors:
@@ -163,10 +181,17 @@ def register():
                 flash(message, "error")
             return render_template("register.html", form=form, uni_years=UNI_YEARS)
 
-        user_id = identity.create_user(form["name"], form["uni_year"], form["username"])
+        user_id = execute(
+            "INSERT INTO user (name, uni_year, username) VALUES (?, ?, ?)",
+            (form["name"], form["uni_year"], form["username"]),
+        )
         set_password(user_id, password)
         audit.record(audit.REGISTER, user_id=user_id, username=form["username"])
-        flash("Account created. Sign in to start.", "success")
+        flash(
+            "Account created. An administrator has to approve it before you can "
+            "start — sign in to check whether that has happened.",
+            "success",
+        )
         return redirect(url_for("auth.login"))
 
     return render_template("register.html", form=form, uni_years=UNI_YEARS)
@@ -193,7 +218,7 @@ def login():
             flash(f"Too many sign-in attempts. Try again in {wait // 60 + 1} minutes.", "error")
             return render_template("login.html", username=username), 429
 
-        user = identity.get_user_row_by_username(username)
+        user = query("SELECT * FROM user WHERE username = ?", (username,), one=True)
 
         if user is None:
             audit.record(audit.LOGIN_FAIL, username=username, detail="no such account")
@@ -232,7 +257,7 @@ def login():
         clear_lockout(user["user_id"])
         throttle.clear("login_user", username.lower())
         throttle.clear("login_ip", source)
-        identity.touch_last_login(user["user_id"])
+        execute("UPDATE user SET last_login_at = ? WHERE user_id = ?", (utcnow(), user["user_id"]))
         audit.record(audit.LOGIN_OK, user_id=user["user_id"], username=username)
 
         # New session identity, new CSRF token: nothing survives the boundary.
@@ -240,6 +265,25 @@ def login():
         csrf.rotate()
         session["user_id"] = user["user_id"]
         session.permanent = False
+
+        if user["approval_status"] != "approved":
+            # Say plainly that the password was right and approval is what is
+            # missing. Without this the sign-in just bounces and the person is
+            # left guessing whether they typed their password wrong — which
+            # ends with them retrying into the three-strikes lockout.
+            if user["approval_status"] == "rejected":
+                flash(
+                    "Your password was correct, but this account was not approved. "
+                    "Speak to your course staff.",
+                    "error",
+                )
+            else:
+                flash(
+                    "Your password was correct. This account is still waiting for an "
+                    "administrator to approve it, so there is nothing to do here yet.",
+                    "info",
+                )
+            return redirect(url_for("auth.pending"))
 
         if user["must_change_password"]:
             return redirect(url_for("auth.change_password"))
@@ -250,6 +294,15 @@ def login():
         return redirect(url_for("dashboard.index"))
 
     return render_template("login.html", username="")
+
+
+@bp.route("/pending")
+@login_required
+def pending():
+    """Where an account sits between registering and being approved."""
+    if g.user["approval_status"] == "approved":
+        return redirect(url_for("dashboard.index"))
+    return render_template("pending.html", status=g.user["approval_status"])
 
 
 @bp.route("/logout", methods=("POST",))

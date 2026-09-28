@@ -16,8 +16,7 @@ from datetime import datetime, timedelta
 from flask import current_app
 from werkzeug.security import check_password_hash, generate_password_hash
 
-from db.orm import db
-from db.user_models import User, UserCredential
+from .db import execute, query, utcnow
 
 # Single source of truth for the stored timestamp format — see db.utcnow().
 TIMESTAMP_FMT = "%Y-%m-%d %H:%M:%S"
@@ -76,14 +75,23 @@ def set_password(user_id: int, password: str, must_change: bool = False):
     passwords staff hand out.
     """
     password_hash = generate_password_hash(password)
-    user = db.session.get(User, user_id)
-    if user.credentials is None:
-       user.credentials = UserCredential(user_id=user_id, password_hash=password_hash)
+    existing = query(
+        "SELECT password_id FROM password_manager WHERE user_id = ?", (user_id,), one=True
+    )
+    if existing:
+        execute(
+            "UPDATE password_manager SET password_hash = ?, updated_at = ? WHERE user_id = ?",
+            (password_hash, utcnow(), user_id),
+        )
     else:
-       user.credentials.password_hash = password_hash
-       user.credentials.password_changed_at = datetime.utcnow()
-    user.credentials.must_change_password = must_change
-    db.session.commit()
+        execute(
+            "INSERT INTO password_manager (user_id, password_hash) VALUES (?, ?)",
+            (user_id, password_hash),
+        )
+    execute(
+        "UPDATE user SET must_change_password = ? WHERE user_id = ?",
+        (1 if must_change else 0, user_id),
+    )
 
 
 def password_matches(user_id: int, password: str) -> bool:
@@ -93,11 +101,13 @@ def password_matches(user_id: int, password: str) -> bool:
     missing account returns noticeably faster than a wrong password, and that
     timing difference is enough to enumerate accounts.
     """
-    user = db.session.get(User, user_id)
-    if user is None or user.credentials is None:
-       generate_password_hash(password)   # keep the timing-safe wasted hash
-       return False
-    return check_password_hash(user.credentials.password_hash, password)
+    row = query(
+        "SELECT password_hash FROM password_manager WHERE user_id = ?", (user_id,), one=True
+    )
+    if row is None:
+        generate_password_hash(password)
+        return False
+    return check_password_hash(row["password_hash"], password)
 
 
 def issue_temporary_password(user_id: int) -> str:
@@ -135,27 +145,33 @@ def lockout_remaining(user_row):
 
 
 def register_failure(user_row):
-    user = db.session.get(User, user_row["user_id"])
-    if user.credentials is None:
-       user.credentials = UserCredential(user_id=user.user_id, password_hash="")
-    attempts = user.credentials.failed_login_count + 1
+    """Count a bad password and lock the account on the configured attempt.
+
+    Returns (attempts_so_far, locked_now).
+
+    This is the client-required 3-strikes lockout. On its own it is a denial of
+    service against any known username, which is why auth.login() also runs a
+    per-source throttle in front of it. If you touch one, look at the other.
+    """
+    attempts = user_row["failed_attempts"] + 1
     limit = current_app.config["MAX_LOGIN_ATTEMPTS"]
     if attempts >= limit:
-       minutes = current_app.config["LOCKOUT_MINUTES"]
-       until = datetime.utcnow() + timedelta(minutes=minutes or 525600)
-       user.credentials.failed_login_count = attempts
-       user.credentials.locked_until = until
-       db.session.commit()
-       return attempts, True
-    user.credentials.failed_login_count = attempts
-    db.session.commit()
+        minutes = current_app.config["LOCKOUT_MINUTES"]
+        until = datetime.utcnow() + timedelta(minutes=minutes or 525600)
+        execute(
+            "UPDATE user SET failed_attempts = ?, locked_until = ? WHERE user_id = ?",
+            (attempts, fmt_ts(until), user_row["user_id"]),
+        )
+        return attempts, True
+    execute(
+        "UPDATE user SET failed_attempts = ? WHERE user_id = ?",
+        (attempts, user_row["user_id"]),
+    )
     return attempts, False
 
 
 def clear_lockout(user_id: int):
-    user = db.session.get(User, user_id)
-    if user is None or user.credentials is None:
-       return
-    user.credentials.failed_login_count = 0
-    user.credentials.locked_until = None
-    db.session.commit()
+    execute(
+        "UPDATE user SET failed_attempts = 0, locked_until = NULL WHERE user_id = ?",
+        (user_id,),
+    )

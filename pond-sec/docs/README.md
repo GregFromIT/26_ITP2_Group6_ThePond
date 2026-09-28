@@ -19,7 +19,7 @@ code talks to the real thing.
 
 ```bash
 python3 -m venv .venv && source .venv/bin/activate
-pip install Flask                       # or: pip install -r requirements.txt
+pip install Flask flask-sqlalchemy       # or: pip install -r requirements.txt
 
 flask --app wsgi init-db                # build the schema
 flask --app wsgi seed-db                # 3 themes, 18 challenges, 6 VM templates, demo users
@@ -48,10 +48,10 @@ uses this.
 There is no email anywhere in the app. If you lock yourself out of a demo
 account, sign in as `bpt` and issue a temporary password from the staff console.
 
-To run the tests: `python -m tests.test_flow`. That is 91 checks covering
-registration, lockout, staff password resets, CSRF, rate limits, security
-headers, launching and closing VMs, scoring, roles and access control. It
-doesn't need pytest.
+To run the tests: `python -m tests.test_flow`. That is 158 checks covering
+registration, account approval, lockout, staff password resets, CSRF, rate
+limits, security headers, launching and closing VMs, scoring, roles, VM image
+uploads and access control. It doesn't need pytest.
 
 For anything outside the lab, set `RANGE_ENV=production` and a real
 `FLASK_SECRET_KEY`. The app won't start in production without one.
@@ -72,7 +72,10 @@ app/audit.py          security event log
 app/auth.py           register, login, logout, change password
 app/dashboard.py      landing page and dashboard
 app/themes.py         themes, challenges, launch, timer, flags, teardown
-app/admin.py          staff console at /admin
+app/admin.py          staff console at /admin, including account approvals
+app/orm.py            SQLAlchemy setup, matching the group's db/orm.py
+app/uploads.py        VM image uploads at /admin/uploads (SQLAlchemy)
+app/fetcher.py        downloading an image from a URL, with the SSRF guards
 app/scoring.py        flag grading, leaderboards, per-challenge matrix
 app/proxmox.py        simulate and api backends behind one interface
 app/seed.py           demo content
@@ -82,6 +85,15 @@ app/seed.py           demo content
 there if you are new to the code. `DATA_MODEL.md` covers the tables,
 `DECISIONS.md` covers why things are built the way they are, and
 `USER_GUIDE.md` is the one to hand to students and staff.
+
+`MIGRATION.md` maps this platform's tables onto the group's SQLAlchemy models
+in `db/`, and lists what still needs deciding before the move can happen. Read
+it before changing anything in the data layer.
+
+`diagrams/use-case-diagram.svg` shows the actors and what each of them can do.
+There's a PNG beside it for pasting into a report, and a `.puml` source if you'd
+rather edit it in PlantUML. Rebuild the SVG and PNG with
+`python tools/build_use_case_diagram.py`.
 
 ## Preview without installing anything
 
@@ -161,7 +173,47 @@ Three levels, all defined in one matrix in `app/roles.py`:
 | Force-close a session, free its VM | — | yes | yes |
 | Read the audit log | — | yes | yes |
 | Grant or remove moderator/admin | — | — | yes |
+| Approve or reject new registrations | — | — | yes |
+| Upload VM images | — | — | yes |
+
+Images land in `instance/uploads/` and are catalogued in `the_pond.db`. An
+image can be added two ways and both end in the same place: choose a file, or
+paste a URL and the server downloads it. A URL image additionally records where
+it came from.
+
+Fetching a user-supplied URL is server-side request forgery if left unguarded,
+and this server sits next to the Proxmox cluster holding an API token, so
+`app/fetcher.py` resolves the hostname and refuses private, loopback,
+link-local, multicast and reserved addresses before connecting, re-checks every
+redirect hop, caps the size while streaming and times out. If your images live
+on an internal server, `UPLOAD_FETCH_ALLOW_PRIVATE=1` relaxes the private-range
+check — loopback and link-local stay refused either way.
+
+**Known risk, accepted for now.** Pond Sec does not quarantine, scan or sanitise
+anything. That is the group's decision: quarantine and sanitisation happen in
+Proxmox, not here. So an uploaded image is not checked beyond its extension and
+first few bytes, a registered URL is not fetched or checked at all, and the
+`status` column is a label staff set for each other rather than a control —
+nothing in the platform behaves differently based on it.
+
+Anything reaching Proxmox from this platform should be treated as untrusted
+until Proxmox has dealt with it. Before a real cohort uses this, the handover
+needs to say plainly whose job that is and what they do. It's on the to-do list.
+
+Uploads accept disk images only: `.vmdk`, `.vhd`, `.vhdx`, `.vdi`, `.qcow`,
+`.qcow2`, `.raw` and `.img`. The extension is checked, and the first bytes are
+read to see whether they agree with it — a disagreement is flagged on the row
+rather than refused, since the file may be fine and only the name wrong. The
+list lives in `ALLOWED_EXTENSIONS` in `app/uploads.py` and is the only place to
+change it.
 | Appears on the leaderboards | yes | yes | no |
+
+**Registering no longer gets you in.** A new account lands on `pending`: it can
+sign in and see a page saying it is waiting, and nothing else. An administrator
+approves it from `/admin/approvals`, and the console shows a count so the queue
+doesn't go unnoticed. Rejected accounts keep their row, so the username stays
+reserved and the decision stays in the audit log, and they can be approved later
+if the call changes.
 
 Registering always gives you a student account. The first administrator gets
 promoted from the command line, which is the one bit of privilege escalation
@@ -216,6 +268,38 @@ Sessions expire after an hour idle.
 If a username is taken we say so plainly, since usernames are printed on the
 leaderboards anyway and hiding that would protect nothing. There are no email
 addresses to enumerate.
+
+## Fuzzing
+
+`python tools/fuzz.py` throws about 800 malformed and hostile requests at every
+route — SQL and template injection strings, XSS payloads, path traversal, null
+bytes, absurd numbers, oversized fields, wrong HTTP methods, borrowed CSRF
+tokens, other people's session ids — and reports anything that looks like a
+defect. `--quick` uses fewer payloads, `--seed N` reproduces a run.
+
+It only counts something as a finding if the app actually broke: a 500, a
+traceback in a response, a payload coming back unescaped, a guard letting the
+wrong person through, a file written outside the upload directory, or database
+state that should be impossible. Refusing bad input is the app working.
+
+It found two real bugs on its first run, both now fixed and covered by the test
+suite:
+
+- **Integer overflow in route parameters.** Flask's `<int:>` converter accepts
+  a Python integer of any size, but SQLite stops at a signed 64-bit value, so
+  `/themes/999999999999999999999` reached a query and raised `OverflowError` —
+  a 500 that any signed-in user could produce from the address bar. Fixed with a
+  bounded converter in `app/__init__.py`, which covers every route at once.
+- **A broken staff button.** `admin.close_session` still imported
+  `app.challenges`, which was renamed to `app.themes` some time ago. It's a lazy
+  import inside the function, so nothing caught it until something actually
+  pressed the button. Force-closing a session was 500ing the whole time.
+
+Worth being clear about what this is not: it runs inside the process against the
+test client, so it never touches TLS, the reverse proxy or a real browser, and
+it only fires payloads somebody thought to write down. It's a cheap regression
+net, not an assessment. The platform still needs testing by somebody outside the
+group.
 
 ## Hardening
 
@@ -322,7 +406,26 @@ Still outstanding, roughly in the order we think they matter.
       flag values, which is fine for a demo and useless for assessment. They
       need to be unique, and ideally generated per VM, or the first student to
       solve one can hand the answer to everybody.
-- [ ] **Independent testing.** The 91 checks are our own. Nothing has been
+- [ ] **Fetching images from a URL.** An image can be registered by URL, but
+      the server deliberately does not download it — a form that makes this
+      server fetch an arbitrary address is an SSRF hole, and this server sits on
+      the same network as the Proxmox cluster. If we build the fetch it needs a
+      host allow-list, DNS checked against private ranges before connecting,
+      redirects handled or disabled, a size limit and a timeout. Until then an
+      admin downloads and uploads the file themselves.
+- [ ] **Two database layers.** `app/db.py` is raw sqlite3 and owns everything
+      the platform has today; `app/orm.py` plus `app/uploads.py` are SQLAlchemy
+      against a separate `the_pond.db`. That's deliberate for now, since the
+      group's newer model files are SQLAlchemy, but it shouldn't stay split.
+- [ ] **Nothing cleans up uploaded images.** They sit in `instance/uploads`
+      until an admin deletes them, and a few VM images will fill a disk fast.
+- [ ] **Quarantine and sanitisation of uploaded images.** Deferred by decision —
+      it happens in Proxmox rather than in the platform. Two things still need
+      settling: who actually does it, and what "done" looks like. Until that is
+      written down, the platform accepts images it has not checked and hands
+      them on, which is a gap somebody should be able to describe rather than be
+      surprised by.
+- [ ] **Independent testing.** The 158 checks are our own. Nothing has been
       through ZAP or Burp or looked at by anyone outside the group, which is
       what we'd need before claiming much about the security in the report.
 - [ ] **Backups and log retention.** The audit log grows forever and nothing

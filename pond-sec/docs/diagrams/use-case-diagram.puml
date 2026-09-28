@@ -1,0 +1,108 @@
+@startuml Pond Sec use cases
+' Editable source for docs/diagrams/use-case-diagram.svg.
+' Render with PlantUML (https://plantuml.com) or the VS Code PlantUML extension:
+'   plantuml use-case-diagram.puml -tsvg
+'
+' The SVG in this folder was drawn separately for the report; keep the two in
+' step if you change one. This file is here so the diagram can be edited without
+' hand-editing SVG.
+
+left to right direction
+skinparam actorStyle awesome
+skinparam packageStyle rectangle
+
+actor Student as student
+actor Moderator as mod
+actor Administrator as admin
+actor "Proxmox VE" as pve
+
+' A moderator can do everything a student can, an administrator everything a
+' moderator can. Moderators appear on the leaderboards; administrators do not.
+student <|-- mod
+mod <|-- admin
+
+rectangle "Pond Sec" {
+
+  package Accounts {
+    usecase "Register account" as UC1
+    usecase "Sign in" as UC2
+    usecase "Change own password" as UC3
+    usecase "Lock account after\n3 failed attempts" as UC4
+  }
+
+  package Challenges {
+    usecase "View dashboard\nand leaderboards" as UC5
+    usecase "Browse themes\nand challenges" as UC6
+    usecase "Launch challenge" as UC7
+    usecase "Open VM console" as UC8
+    usecase "Submit flag" as UC9
+    usecase "Close challenge" as UC10
+    usecase "Clone and start VM" as UC11
+    usecase "Grade flag,\naward points" as UC12
+    usecase "Stop and destroy VM" as UC13
+  }
+
+  package "Staff console" {
+    usecase "View accounts\nand sessions" as UC14
+    usecase "Unlock or lock\nan account" as UC15
+    usecase "Issue temporary\npassword" as UC16
+    usecase "Force-close a session" as UC17
+    usecase "Read audit log" as UC18
+    usecase "Grant or remove\nmoderator / admin" as UC19
+    usecase "Approve or reject\nregistration" as UC20
+    usecase "Upload VM image" as UC21
+  }
+}
+
+student --> UC1
+student --> UC2
+student --> UC3
+student --> UC5
+student --> UC6
+student --> UC7
+student --> UC8
+student --> UC9
+student --> UC10
+
+mod --> UC14
+mod --> UC15
+mod --> UC16
+mod --> UC17
+mod --> UC18
+
+admin --> UC19
+admin --> UC20
+admin --> UC21
+
+UC11 --> pve
+UC13 --> pve
+
+UC7 ..> UC11 : <<include>>
+UC9 ..> UC12 : <<include>>
+UC10 ..> UC13 : <<include>>
+UC4 ..> UC2 : <<extend>>
+
+note bottom of UC19
+  Administrators only. An admin
+  cannot demote the last admin,
+  and nobody can act on an account
+  at their own level or above.
+end note
+
+note bottom of UC16
+  The only password recovery path.
+  Shown once, never stored readable.
+end note
+
+note bottom of UC20
+  New accounts sit on "pending" and
+  reach nothing until approved.
+end note
+
+note bottom of UC21
+  No file type restriction yet.
+  Stored outside the web root and
+  never served back over HTTP.
+end note
+
+@enduml

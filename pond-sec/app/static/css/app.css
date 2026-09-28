@@ -399,6 +399,21 @@ tr.is-you td { font-weight: 600; }
 .status-role-moderator { border-color: var(--accent); color: var(--accent-dark); }
 .status-role-admin { border-color: var(--signal); color: var(--signal); }
 
+.decision-cell { display: flex; gap: .4rem; align-items: center; }
+.status-form { display: flex; gap: .3rem; align-items: center; margin: 0; }
+.tag-warn { background: var(--signal); }
+
+/* Upload status labels. Anything nobody has looked at is marked down the left
+   so the list can be scanned for what still needs attention. */
+.status-upload-new { border-color: var(--signal); color: var(--signal); }
+.status-upload-checked { border-color: var(--accent); color: var(--accent-dark); }
+.status-upload-rejected { border-color: var(--alert); color: var(--alert); }
+tr.is-unchecked td:first-child { box-shadow: inset 3px 0 0 var(--signal); }
+.review-note { width: auto; flex: 1 1 140px; padding: .3rem .4rem; font-size: .85rem; }
+.status-form select { width: auto; padding: .3rem .4rem; font-size: .85rem; }
+input[type="file"] { padding: .5rem; background: #fbfcfb; }
+.decision-cell form { margin: 0; }
+
 .search-row { display: flex; gap: .5rem; margin-bottom: 1.25rem; flex-wrap: wrap; }
 .search-row input, .search-row select { flex: 1 1 240px; width: auto; }
 .search-row .btn { flex: none; }

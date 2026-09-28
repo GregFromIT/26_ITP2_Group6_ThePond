@@ -12,6 +12,14 @@ a class. Nothing in here needs you to have read the code.
 Register with your name, year of study and a username, and pick a password of at
 least 12 characters. There's no email address involved anywhere.
 
+**Your account has to be approved before you can use it.** Once you register you
+can sign in, but you'll land on a page saying you're waiting and won't be able to
+reach the challenges. An administrator approves new accounts.
+
+If your account isn't approved yet, signing in tells you so and says your
+password was correct — so you know not to keep trying different passwords. Sign
+in again later and you'll go straight through.
+
 That last part matters more than it sounds: **there is no "forgot password"
 link**. If you can't get in, you have to ask a moderator or your course
 administrator, and they'll give you a temporary password in person. So pick
@@ -121,8 +129,62 @@ Administrators don't appear on any leaderboard. Moderators do.
 ### The console
 
 The front page gives you a count of live sessions, machines up, accounts,
-moderators, admins and anyone locked out, plus a list of locked accounts, a list
-of what's running right now, and the latest audit events.
+moderators, admins, anyone locked out and anyone waiting on approval, plus a list
+of locked accounts, a list of what's running right now, and the latest audit
+events.
+
+### Approving new accounts
+
+Administrators only, at **Approvals**. New registrations queue up there, oldest
+first, and until somebody approves them those people can sign in but reach
+nothing. Worth checking at the start of a class — a student sitting on the
+waiting page has no way to tell you except by asking.
+
+Rejecting keeps the account rather than deleting it, so nobody can re-register
+that username, and you can approve it later if the decision changes. You can't
+reject an account that already holds moderator or admin powers; use the role
+controls for that.
+
+### Uploading VM images
+
+Administrators only, at **VM uploads**. Pick a VM file from your machine, give it
+a name and any notes, and upload it. Large files take a while and the page sits
+waiting until it finishes, so don't close the tab.
+
+Each image gets a status label you can set: *new*, *checked* or *rejected*, with
+an optional note. Your name and the time are recorded against whatever you set.
+
+**These are notes between staff, not a control.** Nothing in the platform
+behaves differently based on them. All uploads require appropriate quarantine
+and sanitisation checks as this system does not have any in place currently.
+Pasting a link also makes this server fetch that address itself, which is a
+server-side request forgery risk — only paste links you trust.
+
+You can also paste a URL instead of choosing a file. The server downloads the
+image and stores it the same way, with the same formats and size limit, and
+records where it came from. Large images take a while and the page waits until
+the download finishes.
+
+If a URL is refused for being a private or reserved address, that's the SSRF
+guard doing its job. Images on an internal server need
+`UPLOAD_FETCH_ALLOW_PRIVATE=1` set by whoever runs the platform.
+
+Disk images only: `.vmdk`, `.vhd`, `.vhdx`, `.vdi`, `.qcow`, `.qcow2`, `.raw`
+and `.img`. Anything else is refused.
+
+The first bytes of the file are also read and compared against the extension. If
+they disagree the row gets a **contents differ** marker — the upload still goes
+through, because the file may be fine and only the name wrong, but it's worth
+checking before anyone builds a template from it.
+
+You can also register an image by URL instead of uploading it. That records the
+link only; **the server does not download the file**, so somebody still has to
+fetch it, check it and upload it here. That's deliberate — see the decisions
+document if you want the reasoning.
+
+Files are stored on the server outside the web root and are never served back
+over the web, and every upload is recorded in the audit log with your name on
+it.
 
 ### Helping someone who can't sign in
 
@@ -204,3 +266,16 @@ Worth knowing before you run a class on this:
   flags means editing `app/seed.py`. There's no web interface for it.
 - **All the seeded challenges currently share the same flags.** Fine for a demo,
   no good for assessment.
+- **All uploads require appropriate quarantine and sanitisation checks, as this
+  system does not have any in place currently.** The extension and first bytes
+  are checked, which catches mistakes rather than a determined administrator.
+- **Pasting a link makes the server fetch that address itself**, which is a
+  server-side request forgery risk. Private, loopback, link-local and reserved
+  addresses are refused and every redirect is re-checked, but anyone who can
+  reach the uploads page can still make the platform request any public address
+  and store the reply.
+- **Downloaded images are no more checked than uploaded ones.** The URL is
+  guarded against pointing at internal addresses, but the file that comes back
+  is not scanned.
+- **Nothing cleans up uploaded images.** They stay on the server until an
+  administrator deletes them from the uploads page.
