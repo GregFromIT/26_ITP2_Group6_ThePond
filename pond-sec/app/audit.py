@@ -9,7 +9,8 @@ address without becoming a stored-XSS route.
 
 from flask import has_request_context, request
 
-from .db import execute
+from db.orm import db
+from db.audit_models import AuditLog
 
 # Event names, defined once so they stay greppable and consistent.
 #
@@ -31,28 +32,37 @@ CSRF_REJECT = "request.csrf_rejected"
 
 
 def record(event: str, user_id=None, username=None, detail=None):
-    """Write one audit row.
-
-    event:    one of the constants above.
-    user_id:  the account acted on, where known. Left None for events about an
-              account that does not exist (a sign-in attempt on a bad username).
-    username: stored alongside user_id so the log still reads sensibly if the
-              account is later deleted.
-    detail:   short free text for context. Keep it short and NEVER put a
-              password, flag, token or session cookie in here.
-
-    Failures are swallowed: an audit write must never be the reason a student
-    cannot sign in. If you make auditing load-bearing for something, revisit
-    that decision explicitly.
-    """
     source = "-"
     if has_request_context():
         source = request.remote_addr or "unknown"
     try:
-        execute(
-            "INSERT INTO audit_log (event, user_id, username, source_ip, detail) "
-            "VALUES (?, ?, ?, ?, ?)",
-            (event, user_id, username, source, detail),
-        )
+        db.session.add(AuditLog(
+           actor_user_id=user_id,
+           action=event,
+           target_type="user",
+           target_id=user_id,
+           details_json={"username": username, "source_ip": source, "detail": detail},))
+        db.session.commit()
     except Exception as exc:  # logging must never break the request
+        db.session.rollback()
         print(f"[audit] could not write {event}: {exc}")
+
+def to_row(log: AuditLog) -> dict:
+    details = log.details_json or {}
+    return {
+        "audit_id": log.audit_id, "occurred_at": log.created_at,
+        "event": log.action, "user_id": log.actor_user_id,
+        "username": details.get("username"), "source_ip": details.get("source_ip"),
+        "detail": details.get("detail"),
+    }
+
+def query_recent(limit: int = 12, event: str = None, user_id: int = None):
+    q = db.session.query(AuditLog).order_by(AuditLog.audit_id.desc())
+    if event:
+        q = q.filter(AuditLog.action == event)
+    if user_id:
+        q = q.filter(AuditLog.actor_user_id == user_id)
+    return [to_row(row) for row in q.limit(limit).all()]
+
+def distinct_events():
+    return [row[0] for row in db.session.query(AuditLog.action).distinct().order_by(AuditLog.action).all()]

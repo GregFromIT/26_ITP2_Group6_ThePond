@@ -61,7 +61,7 @@ class Config:
     TRUSTED_PROXIES = _int("TRUSTED_PROXIES", 0)
 
     # --- Database --------------------------------------------------------
-    DATABASE = os.environ.get("DATABASE_PATH", "instance/cyber_range.sqlite")
+    #DATABASE = os.environ.get("DATABASE_PATH", "instance/cyber_range.sqlite")
 
     # --- Account policy --------------------------------------------------
     MAX_LOGIN_ATTEMPTS = _int("MAX_LOGIN_ATTEMPTS", 3)
@@ -71,7 +71,6 @@ class Config:
     # --- Proxmox ---------------------------------------------------------
     # Defaults are the project's own cluster. Everything is still overridable,
     # so a second cluster needs no code change.
-    PROXMOX_BACKEND = os.environ.get("PROXMOX_BACKEND", "simulate")
     PROXMOX_HOST = os.environ.get("PROXMOX_HOST", "10.1.21.151")
     PROXMOX_NODE = os.environ.get("PROXMOX_NODE", "pve")
 
@@ -80,12 +79,22 @@ class Config:
     # least-privilege token before this runs for a cohort.
     PROXMOX_TOKEN_ID = os.environ.get("PROXMOX_TOKEN_ID", "root@pam!root")
     # No default, ever. The secret comes from the environment or nowhere.
-    PROXMOX_TOKEN_SECRET = os.environ.get("PROXMOX_TOKEN_SECRET")
+    PROXMOX_TOKEN_SECRET = os.environ.get("THEPOND_PROXMOX_TOKEN_SECRET")
 
     # Where clone disks land. Only consulted for full clones — a linked clone
     # shares the template's disk and inherits its storage.
     PROXMOX_STORAGE = os.environ.get("PROXMOX_STORAGE", "local-lvm")
     PROXMOX_FULL_CLONE = _bool("PROXMOX_FULL_CLONE", False)
+
+    # Gateway written into a single-VM challenge clone's static network
+    # config (see provisioner.inject_instance_network()'s gateway param).
+    # Only used for the no-vnet case - a multi-VM challenge's session VNet
+    # has no router at all (create_session_vnet()'s own docstring), so this
+    # is never written there regardless of what it's set to. Confirmed
+    # 10.1.20.1 is the real gateway for the flat lab VLAN by testing vmid
+    # 308 on 2026-09-16 - omitting it let a clone answer ARP but drop every
+    # reply, since it had no route out.
+    PROXMOX_LAB_GATEWAY = os.environ.get("PROXMOX_LAB_GATEWAY", "10.1.20.1")
 
     # A cluster on an IP address almost certainly has a self-signed certificate,
     # which fails verification. Either install the cluster CA on this host and

@@ -19,9 +19,11 @@ first symptom of outgrowing it is "database is locked" under load — the fix is
 PostgreSQL, and db.py is the only module that would need to change.
 """
 
+import os
+
 from app import create_app
 
 app = create_app()
 
 if __name__ == "__main__":
-    app.run(debug=True)
+    app.run(host="0.0.0.0", port=int(os.environ.get("PORT", 5001)), debug=False)

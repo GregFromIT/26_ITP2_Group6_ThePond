@@ -3,6 +3,8 @@ Flask>=3.0
 # Only needed when PROXMOX_BACKEND=api
 proxmoxer>=2.0
 requests>=2.31
+flask-sock>=0.7
+websocket-client>=1.7
 
 # Production WSGI server. gunicorn is Unix-only (it imports fcntl), so Windows
 # gets waitress instead — the markers mean `pip install -r requirements.txt`

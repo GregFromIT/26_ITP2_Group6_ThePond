@@ -73,3 +73,7 @@ class InstanceStore:
 
     def close(self):
         self._conn.close()
+
+    def delete(self, vmid: int) -> None:
+        self._conn.execute("DELETE FROM instances WHERE vmid = ?", (vmid,))
+        self._conn.commit()

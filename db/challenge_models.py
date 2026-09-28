@@ -98,3 +98,42 @@ class Challenge(db.Model):
         back_populates="challenge",
         cascade="all, delete-orphan"
     )
+
+class NetworkRule(db.Model):
+    __bind_key__ = "pond"
+    __tablename__ = "network_rules"
+
+    rule_id: Mapped[int] = mapped_column(
+        Integer,
+        primary_key=True,
+        autoincrement=True
+    )
+
+    challenge_id: Mapped[int] = mapped_column(
+        ForeignKey(
+            "challenges.challenge_id",
+            ondelete="CASCADE"
+        ),
+        nullable=False
+    )
+
+    from_role: Mapped[str] = mapped_column(
+        String(50),
+        nullable=False
+    )
+
+    to_role: Mapped[str] = mapped_column(
+        String(50),
+        nullable=False
+    )
+
+    protocol: Mapped[str] = mapped_column(
+        String(10),
+        nullable=False,
+        default="tcp"
+    )
+
+    port: Mapped[int] = mapped_column(
+        Integer,
+        nullable=False
+    )
