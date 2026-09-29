@@ -48,7 +48,7 @@ if str(_REPO_ROOT) not in sys.path:
     sys.path.insert(0, str(_REPO_ROOT))
 from db.orm import db as sqla_db  # noqa: E402
  
-from . import admin, audit, auth, csrf, dashboard, roles, themes
+from . import admin, audit, auth, csrf, dashboard, roles, themes, uploads
 from .config import Config
 
 
@@ -61,6 +61,10 @@ def create_app(test_config=None):
     """
     app = Flask(__name__, instance_relative_config=False)
     app.config.from_object(Config)
+    # Trusted, administrator-owned Python settings only. Never point this at
+    # quarantine or a user-controlled file: Flask executes Python config files.
+    if os.environ.get("POND_SETTINGS"):
+        app.config.from_pyfile(os.environ["POND_SETTINGS"], silent=False)
     if test_config:
         app.config.update(test_config)
 
@@ -81,6 +85,7 @@ def create_app(test_config=None):
     app.config.setdefault("SQLALCHEMY_BINDS", {"pond": f"sqlite:///{_REPO_ROOT / 'the_pond.db'}"})
     app.config.setdefault("SQLALCHEMY_TRACK_MODIFICATIONS", False)
     sqla_db.init_app(app)
+    uploads.init_app(app)
     csrf.init_app(app)
     roles.init_app(app)      # exposes can() to templates
     admin.init_app(app)      # registers the set-role CLI command
@@ -95,6 +100,7 @@ def create_app(test_config=None):
     app.register_blueprint(auth.bp)
     app.register_blueprint(themes.bp)
     app.register_blueprint(admin.bp)
+    app.register_blueprint(uploads.bp)
 
     register_filters(app)
     register_error_handlers(app)

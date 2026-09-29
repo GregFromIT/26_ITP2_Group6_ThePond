@@ -1,0 +1,10 @@
+{% extends "base.html" %}
+{% block title %}New challenge submission · Pond Sec{% endblock %}
+{% block content %}<section class="form-page"><div class="form-card">
+<h1>New challenge submission</h1><p>Choose the challenge definition JSON file. You can add its VM images on the next page.</p>
+<p>Use the supplied package examples. The definition includes student instructions, VM requirements and any scoring information.</p>
+<form method="post" enctype="multipart/form-data" action="{{ url_for('uploads.create') }}">
+<input type="hidden" name="_csrf" value="{{ csrf_token() }}">
+<label for="manifest">Challenge definition</label><input id="manifest" name="manifest" type="file" accept=".json,application/json" required>
+<button class="btn btn-solid" type="submit">Create draft</button></form>
+</div></section>{% endblock %}

@@ -49,9 +49,18 @@ class Config:
     PERMANENT_SESSION_LIFETIME = _int("SESSION_LIFETIME_MINUTES", 720) * 60
     IDLE_TIMEOUT_MINUTES = _int("IDLE_TIMEOUT_MINUTES", 60)
 
-    # Nothing here accepts an upload. Anything large is either a mistake or an
-    # attempt to tie up a worker.
+    # Ordinary pages remain small. Dedicated challenge-intake routes apply
+    # separate bounded limits before request parsing.
     MAX_CONTENT_LENGTH = _int("MAX_CONTENT_BYTES", 64 * 1024)
+    # Only dedicated intake endpoints override the normal small request limit.
+    UPLOAD_QUARANTINE_ROOT = os.environ.get("UPLOAD_QUARANTINE_ROOT")
+    UPLOAD_MAX_IMAGE_BYTES = _int("UPLOAD_MAX_IMAGE_BYTES", 20 * 1024**3)
+    UPLOAD_USER_QUOTA_BYTES = _int("UPLOAD_USER_QUOTA_BYTES", 80 * 1024**3)
+    UPLOAD_TOTAL_QUOTA_BYTES = _int("UPLOAD_TOTAL_QUOTA_BYTES", 200 * 1024**3)
+    # Trusted deployment callbacks, supplied by POND_SETTINGS Python config.
+    INGESTION_VERIFY_TEMPLATE = None
+    INGESTION_INSPECT_IMAGE = None
+    INGESTION_PUBLICATION_ADAPTER = None
     MAX_FIELD_LENGTH = _int("MAX_FIELD_LENGTH", 200)
 
     FORCE_HTTPS = _bool("FORCE_HTTPS", IS_PRODUCTION)
@@ -79,22 +88,12 @@ class Config:
     # least-privilege token before this runs for a cohort.
     PROXMOX_TOKEN_ID = os.environ.get("PROXMOX_TOKEN_ID", "root@pam!root")
     # No default, ever. The secret comes from the environment or nowhere.
-    PROXMOX_TOKEN_SECRET = os.environ.get("THEPOND_PROXMOX_TOKEN_SECRET")
+    PROXMOX_TOKEN_SECRET = os.environ.get("PROXMOX_TOKEN_SECRET")
 
     # Where clone disks land. Only consulted for full clones — a linked clone
     # shares the template's disk and inherits its storage.
     PROXMOX_STORAGE = os.environ.get("PROXMOX_STORAGE", "local-lvm")
     PROXMOX_FULL_CLONE = _bool("PROXMOX_FULL_CLONE", False)
-
-    # Gateway written into a single-VM challenge clone's static network
-    # config (see provisioner.inject_instance_network()'s gateway param).
-    # Only used for the no-vnet case - a multi-VM challenge's session VNet
-    # has no router at all (create_session_vnet()'s own docstring), so this
-    # is never written there regardless of what it's set to. Confirmed
-    # 10.1.20.1 is the real gateway for the flat lab VLAN by testing vmid
-    # 308 on 2026-09-16 - omitting it let a clone answer ARP but drop every
-    # reply, since it had no route out.
-    PROXMOX_LAB_GATEWAY = os.environ.get("PROXMOX_LAB_GATEWAY", "10.1.20.1")
 
     # A cluster on an IP address almost certainly has a self-signed certificate,
     # which fails verification. Either install the cluster CA on this host and

@@ -1,0 +1,8 @@
+{% extends "base.html" %}
+{% block title %}Notifications · Pond Sec{% endblock %}
+{% block content %}<header class="page-head"><h1>Notifications</h1><p>{{ unread }} unread</p></header>
+<section class="board">{% for notice in notices %}<article><h2>{{ notice.event_type|replace('_', ' ') }}</h2><p>{{ notice.message }}</p><p>{{ notice.sent_at|stamp }}</p>
+{% if can('upload_challenges') %}<a href="{{ url_for('uploads.detail', submission_id=notice.submission_id) }}">Open submission #{{ notice.submission_id }}</a>{% endif %}
+{% if not notice.read_at %}<form method="post" action="{{ url_for('uploads.read_notification', notification_id=notice.notification_id) }}"><input type="hidden" name="_csrf" value="{{ csrf_token() }}"><button class="btn btn-outline" type="submit">Mark as read</button></form>{% else %}<p>Read</p>{% endif %}</article>
+{% else %}<p>No delivered notifications yet.</p>{% endfor %}
+{% if notices|length == 50 %}<a href="{{ url_for('uploads.inbox', before=notices[-1].notification_id) }}">Older notifications</a>{% endif %}</section>{% endblock %}

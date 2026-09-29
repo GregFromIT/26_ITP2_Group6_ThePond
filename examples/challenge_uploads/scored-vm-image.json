@@ -1,0 +1,35 @@
+{
+  "schema_version": 1,
+  "challenge_type": "scored_vm",
+  "title": "Practice target",
+  "description": "Practice enumerating an isolated target.",
+  "instructions": "Start your instance and inspect the target services.",
+  "category": "networking",
+  "difficulty": "beginner",
+  "time_limit_minutes": 60,
+  "vms": [
+    {
+      "role": "target",
+      "name": "Practice target",
+      "source": {
+        "kind": "image",
+        "path": "images/target.qcow2"
+      },
+      "cpu_cores": 2,
+      "memory_mb": 2048,
+      "disk_gb": 20,
+      "boot_order": 1,
+      "is_user_accessible": true
+    }
+  ],
+  "network_rules": [],
+  "flags": [
+    {
+      "vm_role": "target",
+      "name": "Root flag",
+      "flag_hash": "c5ea555fbe471f3f3bfd807a40b647bbf3bd948f66ce4d1d6c1a01bb0ef2340e",
+      "points": 100,
+      "sequence_number": 1
+    }
+  ]
+}
