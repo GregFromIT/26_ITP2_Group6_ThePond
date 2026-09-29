@@ -46,10 +46,9 @@ ProxmoxError = _core.ProxmoxError
 # None of this needs the network except _check_token_privileges, so the rules
 # are pure functions that tests/test_credentials.py can drive directly.
 #
-# NOTE: TLS verification and pool placement are only enforced once
-# provisioner.get_client() uses _tls_verify(cfg) and provisioner.clone_and_start()
-# passes pool=cfg["PROXMOX_POOL"]. Until then these rules are checked here but
-# not applied to the connection itself.
+# provisioner.get_client() builds the connection from this same Flask config
+# (token ID, secret, PROXMOX_VERIFY_SSL, PROXMOX_CA_BUNDLE), so what is checked
+# here is what is used. Clones are created in PROXMOX_POOL.
 
 _TOKEN_ID_RE = re.compile(r"^(?P<user>[^\s@!:]+)@(?P<realm>[A-Za-z][A-Za-z0-9._-]*)!(?P<name>[A-Za-z][A-Za-z0-9._-]*)$")
 
@@ -326,6 +325,7 @@ def clone_and_start(template_vmid: int, node: str = None, label: str = "challeng
         full_clone=cfg["PROXMOX_FULL_CLONE"], storage=cfg["PROXMOX_STORAGE"],
         instance_id=instance_id, template_id=template_id, vnet=vnet,
         static_ip=static_ip, proxmox_host=proxmox_host, gateway=gateway,
+        pool=cfg["PROXMOX_POOL"],   # the only pool the token can create VMs in
     )
 
 

@@ -74,7 +74,6 @@
       - Pool.Allocate
       - Datastore.Allocate
       - Mapping.Modify
-      - VM.Console
       - VM.Config.Disk
       - VM.Config.CPU
       - VM.Config.Memory

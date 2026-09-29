@@ -91,7 +91,11 @@ class Config:
     # playbooks/pond_least_privilege.yml.
     PROXMOX_TOKEN_ID = os.environ.get("PROXMOX_TOKEN_ID")
     # No default, ever. The secret comes from the environment or nowhere.
-    PROXMOX_TOKEN_SECRET = os.environ.get("THEPOND_PROXMOX_TOKEN_SECRET")
+    # PROXMOX_TOKEN_SECRET is the name .env.example documents;
+    # THEPOND_PROXMOX_TOKEN_SECRET is what provisioner.py and the legacy tools
+    # use. Either works, so the two can't disagree about which one is set.
+    PROXMOX_TOKEN_SECRET = (os.environ.get("PROXMOX_TOKEN_SECRET")
+                            or os.environ.get("THEPOND_PROXMOX_TOKEN_SECRET"))
 
     # Where clone disks land. Only consulted for full clones — a linked clone
     # shares the template's disk and inherits its storage.
