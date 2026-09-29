@@ -1,0 +1,26 @@
+challenge: "mrrobot"
+
+vm_templates:
+  - name: "kali-attacker"
+    role: "attacker"
+    static_ip: "10.10.1.10"
+  - name: "mrrobot-target"
+    role: "target"
+    static_ip: "10.10.1.23"
+
+network_rules:
+  - from: "attacker"
+    to: "target"
+    port: 80
+    protocol: "tcp"
+  - from: "attacker"
+    to: "target"
+    port: 443
+    protocol: "tcp"
+
+vmid_range_start: 20005
+vmid_range_end: 20005
+default_ttl_hours: 4
+
+flag: "FLAG{mrrobot_placeholder}"
+points: 300

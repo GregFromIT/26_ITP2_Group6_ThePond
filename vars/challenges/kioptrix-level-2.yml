@@ -1,0 +1,22 @@
+challenge: "kioptrix-level-2"
+
+vm_templates:
+  - name: "kali-attacker"
+    role: "attacker"
+    static_ip: "10.10.1.10"
+  - name: "kioptrix-level-2-target"
+    role: "target"
+    static_ip: "10.10.1.22"
+
+network_rules:
+  - from: "attacker"
+    to: "target"
+    port: 80
+    protocol: "tcp"
+
+vmid_range_start: 20004
+vmid_range_end: 20004
+default_ttl_hours: 4
+
+flag: "FLAG{kioptrix_l2_placeholder}"
+points: 300
