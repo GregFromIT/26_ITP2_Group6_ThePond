@@ -1,6 +1,9 @@
 """
 provisioner.py
 
+DEPRECATED - the web app (pond-sec/app/proxmox.py) does not use this module.
+Security fixes only (H3); do not add features.
+
 Direct Proxmox REST calls via proxmoxer - replaces the ansible-playbook
 shell-outs in playbooks/create_instance.yml and playbooks/destroy_instance.yml.
 Same clone+start / stop+delete lifecycle, called directly from cli.py instead
@@ -34,11 +37,19 @@ PROJECT_ROOT = Path(__file__).parent
 GROUP_VARS_PATH = PROJECT_ROOT / "group_vars" / "all.yml"
 TOKEN_SECRET_ENV = "THEPOND_PROXMOX_TOKEN_SECRET"
 SSH_KEY_ENV = "THEPOND_PROXMOX_SSH_KEY"  # mirrors TOKEN_SECRET_ENV's pattern - path to a private key, not committed
-DEFAULT_SSH_USER = "root"
+# This range overlaps VMs 300-303, which belong to another project on the same
+# cluster. It is kept for the legacy callers and guarded instead: PROTECTED_VMIDS
+# is never allocated, cloned over, stopped or deleted (H3).
 DEFAULT_VMID_RANGE = (301, 399)
+PROTECTED_VMIDS = frozenset(range(300, 304))
 
 class ProxmoxError(RuntimeError):
     pass
+
+
+def _refuse_protected(vmid: int) -> None:
+    if int(vmid) in PROTECTED_VMIDS:
+        raise ProxmoxError(f"vmid {vmid} belongs to another project and is protected; refusing.")
 
 @dataclass
 class Clone:
@@ -76,21 +87,29 @@ def get_client(config: dict) -> ProxmoxAPI:
             f"Set {TOKEN_SECRET_ENV} to the Proxmox API token secret "
             "(see group_vars/vault.yml.example for where this used to live)."
         )
+    # H3: TLS is verified (a CA bundle path may be given), and a @pam token -
+    # a Linux account on the hypervisor, root@pam bypassing every permission
+    # check - is refused outright.
+    verify = os.environ.get("THEPOND_PROXMOX_CA_BUNDLE") or (
+        os.environ.get("THEPOND_PROXMOX_VERIFY_SSL", "1") == "1")
     if "proxmox_api_host" in config:
-        return ProxmoxAPI(
-            config["proxmox_api_host"],
-            user=config["proxmox_api_user"],
-            token_name=config["proxmox_api_token_id"],
-            token_value=token_secret,
-            verify_ssl=False,
-        )
-    user, _, token_name = config["PROXMOX_TOKEN_ID"].partition("!")
+        host = config["proxmox_api_host"]
+        user = config["proxmox_api_user"]
+        token_name = config["proxmox_api_token_id"]
+    else:
+        host = config["PROXMOX_HOST"]
+        user, _, token_name = config["PROXMOX_TOKEN_ID"].partition("!")
+    user = user.strip()
+    realm = user.rpartition("@")[2].strip().lower() if "@" in user else ""
+    if not realm or realm == "pam":
+        # A realm-less user is refused too: Proxmox would read it as @pam.
+        raise RuntimeError("Refusing a @pam API token (H3); use a scoped @pve token.")
     return ProxmoxAPI(
-        config["PROXMOX_HOST"],
+        host,
         user=user,
         token_name=token_name,
         token_value=token_secret,
-        verify_ssl=False,
+        verify_ssl=verify,
     )
 
 
@@ -123,7 +142,9 @@ def create_instance(
 ) -> None:
     """Clone `vm_template` to `vmid` and start it. Mirrors
     playbooks/create_instance.yml's clone + start tasks."""
+    _refuse_protected(vmid)
     template_vmid = _resolve_template_vmid(client, node, vm_template)
+    _refuse_protected(template_vmid)
     task = client.nodes(node).qemu(template_vmid).clone.post(
         newid=vmid, name=vm_name, full=1, storage=storage
     )
@@ -143,7 +164,7 @@ def next_free_vmid(client: ProxmoxAPI, node: str, start: int = DEFAULT_VMID_RANG
             .all()
         }
 
-    used = proxmox_used | ledger_used | set(extra_used)
+    used = proxmox_used | ledger_used | set(extra_used) | PROTECTED_VMIDS
     for vmid in range(start, end + 1):
         if vmid not in used:
             return vmid
@@ -178,7 +199,7 @@ def claim_vmid(
             for row in db.session.query(VMInstance.proxmox_vmid)
             .filter(VMInstance.deleted_at.is_(None)).all()
         }
-        used_hint = proxmox_used | ledger_used
+        used_hint = proxmox_used | ledger_used | PROTECTED_VMIDS
 
         for candidate in range(start, end + 1):
             if candidate in used_hint:
@@ -240,6 +261,7 @@ def enable_vm_firewall(client: ProxmoxAPI, node: str, vmid: int) -> None:
     rewrite below) - enabling the VM-level firewall alone does nothing if
     the NIC itself doesn't have filtering turned on; Proxmox raises no
     error for that mismatch; it just silently doesn't enforce."""
+    _refuse_protected(vmid)
     client.nodes(node).qemu(vmid).firewall.options.put(enable=1, policy_in="DROP")
 
 
@@ -249,12 +271,14 @@ def apply_network_rule(
 ) -> None:
     """One inbound allow rule on the DESTINATION vm - the resource being
     protected owns the rule that lets someone in, not the source."""
+    _refuse_protected(dest_vmid)
     client.nodes(node).qemu(dest_vmid).firewall.rules.post(
         type="in", action="ACCEPT", source=source_ip, dport=port, proto=proto,
     )
 
 def get_console_ticket(client: ProxmoxAPI, node: str, vmid: int) -> dict:
     """One-time VNC ticket + port for the noVNC console proxy."""
+    _refuse_protected(vmid)
     return client.nodes(node).qemu(vmid).vncproxy.post(websocket=1)
 
 def web_console_ticket(client: ProxmoxAPI, node: str, vmid: int) -> ConsoleTicket:
@@ -282,6 +306,7 @@ def destroy_instance(client: ProxmoxAPI, node: str, vmid: int, timeout: int = 60
     rather than a 404 - this is treated as already-destroyed rather than
     an error, so the caller's DB cleanup still runs instead of the whole
     operation failing."""
+    _refuse_protected(vmid)
     if not instance_exists(client, node, vmid):
         return
     task = client.nodes(node).qemu(vmid).status.stop.post()
@@ -307,6 +332,7 @@ def _find_disk_volid(client: ProxmoxAPI, node: str, vmid: int) -> str:
     (sata0 confirmed on the DC-1 template; could be scsi0/virtio0 for
     others) rather than assuming a fixed slot name - works for linked or
     full clones since the key mirrors whatever the source template used."""
+    _refuse_protected(vmid)   # the result feeds a disk write
     config = client.nodes(node).qemu(vmid).config.get()
     for key, value in config.items():
         if DISK_KEY_RE.match(key):
@@ -318,9 +344,23 @@ def _ssh_client(host: str) -> paramiko.SSHClient:
     key_path = os.environ.get(SSH_KEY_ENV)
     if not key_path:
         raise RuntimeError(f"Set {SSH_KEY_ENV} to an SSH private key path for the Proxmox host")
+    # H3: the account is named explicitly (no default), root is refused unless
+    # knowingly allowed, and the host key must already be known - an unknown
+    # host is rejected rather than trusted on first sight.
+    user = os.environ.get("THEPOND_PROXMOX_SSH_USER")
+    if not user:
+        raise RuntimeError("Set THEPOND_PROXMOX_SSH_USER to the restricted account used to reach the Proxmox host")
+    if user == "root" and os.environ.get("THEPOND_PROXMOX_ALLOW_ROOT_SSH") != "1":
+        raise RuntimeError(
+            "Root SSH to the hypervisor is refused (H3). Use a restricted account with a "
+            "forced-command wrapper, or set THEPOND_PROXMOX_ALLOW_ROOT_SSH=1 knowingly.")
     ssh = paramiko.SSHClient()
-    ssh.set_missing_host_key_policy(paramiko.AutoAddPolicy())
-    ssh.connect(host, username=DEFAULT_SSH_USER, key_filename=key_path)
+    ssh.load_system_host_keys()
+    known_hosts = os.environ.get("THEPOND_PROXMOX_KNOWN_HOSTS")
+    if known_hosts:
+        ssh.load_host_keys(known_hosts)
+    ssh.set_missing_host_key_policy(paramiko.RejectPolicy())
+    ssh.connect(host, username=user, key_filename=key_path)
     return ssh
 
 
@@ -360,6 +400,7 @@ def inject_instance_network(
     vnet IS set (create_session_vnet()'s isolated segments have no router
     at all - see that function's own docstring).
     """
+    _refuse_protected(vmid)   # this writes into the VM's disk over SSH
     volid = _find_disk_volid(client, node, vmid)
     disk_path = f"/dev/{vg_name}/{volid}"  # confirmed vg_name="pve" for every disk on this host via `lvs -o vg_name,lv_name`
 
@@ -430,12 +471,14 @@ def clone_and_start(
     if static_ip is not None and proxmox_host is None:
         raise ValueError("proxmox_host is required when static_ip is set - inject_instance_network needs it to SSH in")
 
+    _refuse_protected(template_vmid)
     reserved = claim_vmid(client, node, instance_id, template_id, *vmid_range)
     vmid = reserved.proxmox_vmid
     options = {"newid": vmid, "name": label[:63], "full": 1 if full_clone else 0, "target": node}
     if full_clone:
         options["storage"] = storage
     try:
+        _refuse_protected(vmid)   # claim_vmid never returns one; belt and braces
         task = client.nodes(node).qemu(template_vmid).clone.post(**options)
         Tasks.blocking_status(client, task)
 
@@ -476,6 +519,7 @@ def stop_and_destroy(client: ProxmoxAPI, vmid: int, node: str, vnet: str | None 
     """vnet: pass the session's vnet name only on the LAST VM being torn
     down for that session - destroying it while sibling VMs in the same
     session are still attached would sever their connectivity too."""
+    _refuse_protected(vmid)
     destroy_instance(client, node, vmid)
 
     with _db_context():

@@ -295,6 +295,18 @@ so the platform demos without a cluster, and `api` clones and starts real VMs.
 Switching between them is a config change, not a rewrite, because no view
 imports `proxmoxer`.
 
+The credentials section decides what the adapter will hold (H3).
+`settings_problems()` is a pure check of the Proxmox settings, used by
+`_connect()` and by `create_app()` so production refuses to start with a `@pam`
+token, no secret, or TLS off. `_connect()` refuses before building a client, then
+splits the token ID, verifies TLS (CA bundle path or the on/off flag). Before
+every launch `_check_token_privileges()` reads `GET /access/permissions` and
+compares it, path by path, with `allowed_privileges()`; passes are cached for
+`PROXMOX_PRIVILEGE_CHECK_TTL` seconds, failures never are. Clones are created in
+`PROXMOX_POOL` and the protected vmids are refused everywhere. The in-memory
+Proxmox used to test all this is `tests/fake_proxmox.py`, shared by
+`test_isolation.py` and `test_credentials.py`.
+
 ### `app/audit.py`
 The security event log: sign-ins, failures, lockouts, role changes, temporary
 passwords, instance launches and closes. One `record()` function and a list of
@@ -318,6 +330,15 @@ reasonable-looking change would quietly break something: that a temporary
 password is never stored readable, that the console URL never ends up in the
 HTML, that a second student gets a 404 on somebody else's session. If one of
 those fails, the fix is almost never the test.
+
+### `tests/test_isolation.py`, `tests/test_credentials.py`
+Same shape, no pytest, run with `python -m tests.test_isolation` and
+`python -m tests.test_credentials`. Both drive `app/proxmox.py` against the
+in-memory `tests/fake_proxmox.py`. The first pins per-session network isolation;
+the second pins which tokens and TLS settings the adapter accepts, the pool and
+protected-VM rules, the per-launch privilege self-check, and that the shipped
+playbook and legacy tools agree with them. `test_credentials.py` installs a fake
+`proxmoxer` module first, so it can never open a connection.
 
 ### `tools/fuzz.py`
 Throws malformed and hostile input at every route and reports what breaks.

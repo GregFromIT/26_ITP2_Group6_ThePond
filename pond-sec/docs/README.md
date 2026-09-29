@@ -333,13 +333,17 @@ friendly one.
 
 ## Connecting to the real Proxmox
 
-Our cluster details are already the defaults. The only thing missing is the
-token secret, because that's the one value that must never go in the repo.
+Our cluster host and node are the defaults. The token is not: there is no
+default token ID and no default secret, because a default that works is a
+default nobody replaces, and the last one was a root token (H3). Create The
+Pond's own token first (see "Least-privilege Proxmox token" below).
 
 ```bash
 pip install proxmoxer requests
 export PROXMOX_BACKEND=api
-export PROXMOX_TOKEN_SECRET='...'          # from Proxmox, not from git
+export PROXMOX_TOKEN_ID='pond@pve!launcher'
+export PROXMOX_TOKEN_SECRET='...'          # from the playbook, not from git
+export PROXMOX_CA_BUNDLE=/etc/pond/pve-root-ca.pem
 ```
 
 The defaults in `app/config.py`:
@@ -348,7 +352,15 @@ The defaults in `app/config.py`:
 |---|---|
 | `PROXMOX_HOST` | `10.1.21.151` |
 | `PROXMOX_NODE` | `pve` |
-| `PROXMOX_TOKEN_ID` | `root@pam!root` |
+| `PROXMOX_TOKEN_ID` | (none; required, `user@realm!tokenname`, `@pam` refused) |
+| `PROXMOX_VERIFY_SSL` | `1` (0 is refused in production) |
+| `PROXMOX_CA_BUNDLE` | (none) copy of `/etc/pve/pve-root-ca.pem`; wins over `PROXMOX_VERIFY_SSL=0` |
+| `PROXMOX_POOL` | `pond-clones`, the pool every clone is created in |
+| `PROXMOX_TEMPLATE_POOL` | `pond-templates`, the pool holding the templates |
+| `PROXMOX_TEMPLATE_BRIDGES` | (none) local bridges the token may hold `SDN.Use` on; must match `pond_template_bridges` in the playbook |
+| `PROXMOX_TEMPLATE_STORAGES` | `local-lvm`, storages (besides `PROXMOX_STORAGE`) the token may hold `Datastore.AllocateSpace` on; must match `pond_storages` |
+| `PROXMOX_PROTECTED_VMIDS` | `300-303`, other projects' VMs, never cloned or deleted |
+| `PROXMOX_PRIVILEGE_CHECK_TTL` | `300` seconds a passed self-check is trusted per worker |
 | `PROXMOX_STORAGE` | `local-lvm` (full clones only) |
 | `PROXMOX_FULL_CLONE` | `0`, so linked clones by default |
 
@@ -357,23 +369,129 @@ real template. `clone_and_start` grabs the next cluster id, makes a linked
 clone, starts it and hands back a noVNC console URL. `stop_and_destroy` stops
 and deletes it when the session closes.
 
-Two things about the current setup we should decide on rather than just
-inherit.
+### Least-privilege Proxmox token
 
-`root@pam` is a lot more access than this app needs. A token under root can do
-anything on the cluster, so a bug in our code, or anyone who reads the secret
-off the server, gets every VM and not just the teaching ones. Better to make a
-dedicated user and give its token only `VM.Clone`, `VM.Config.*`,
-`VM.PowerMgmt`, `VM.Audit` and `VM.Allocate` on the template pool. Tick
-Privilege Separation when creating the token or it inherits the user's full
-rights anyway.
+The app runs as its own user, `pond@pve`, through a privilege-separated token,
+`pond@pve!launcher`. It is created by `playbooks/pond_least_privilege.yml`, which
+is run on the Proxmox node as root and never touches VMs 300-303.
 
-Certificate verification is off by default, because reaching the host by IP
-means a self-signed certificate that would fail verification. That's fine in the
-lab and a bad habit anywhere else. With it off, anything sitting between the app
-and `10.1.21.151` can pretend to be the hypervisor and collect the API token.
-Installing the cluster CA on the app host and setting `PROXMOX_VERIFY_SSL=1`
-fixes it.
+What each call in `app/proxmox.py` needs:
+
+| # | Call | Privilege | Granted by |
+|---|---|---|---|
+| 1 | `GET /cluster/nextid` | none | |
+| 2 | `POST /nodes/{n}/qemu/{tpl}/clone` (with `pool=`) | `VM.Clone` on the template; `VM.Allocate` on the clone pool; `Datastore.AllocateSpace` on the storage; `SDN.Use` on the template's bridge; `Sys.Console` on `/` only if the template has a physical CD-ROM | `/pool/pond-templates` PondTemplates; `/pool/pond-clones` PondClones; `/storage/local-lvm` PondStorage; the template's bridge PondBridge |
+| 3 | `GET /nodes/{n}/tasks/{upid}/status` | none for own tasks, else `Sys.Audit` on `/nodes/{n}` | optional `pond_grant_node_audit` |
+| 4 | `GET /cluster/sdn/zones` | filtered by `SDN.Audit`/`SDN.Allocate` | `/sdn/zones/pondz` PondSDN |
+| 5 | `GET /cluster/firewall/options` | `Sys.Audit` on `/` | `/` PondAudit (no propagate) |
+| 6 | `POST /cluster/sdn/vnets` | `SDN.Allocate` on the zone | PondSDN |
+| 7 | `PUT /cluster/sdn` (apply) | `SDN.Allocate` on `/sdn` | `/sdn` PondSDNApply (no propagate; medium confidence, see 403 notes) |
+| 8 | `GET qemu/{id}/config` | `VM.Audit` | PondClones via the pool |
+| 9 | `PUT config netN` | `VM.Config.Network`, plus `SDN.Use` on the new VNet | PondClones; PondSDN |
+| 10 | `PUT`/`GET firewall/options` | `VM.Config.Network` / `VM.Audit` | PondClones |
+| 11 | `POST status/start`, `status/stop` | `VM.PowerMgmt` | PondClones |
+| 12 | `DELETE qemu/{id}` | `VM.Allocate` | PondClones |
+| 13 | `GET`/`DELETE /cluster/sdn/vnets` | filtered `SDN.Audit`/`SDN.Allocate` | PondSDN |
+| 14 | `GET /access/permissions` | none | |
+
+Roles: PondClones (`VM.Allocate`, `VM.Audit`, `VM.Config.Network`,
+`VM.PowerMgmt`), PondTemplates (`VM.Audit`, `VM.Clone`), PondStorage
+(`Datastore.AllocateSpace`), PondSDN (`SDN.Allocate`, `SDN.Audit`, `SDN.Use`),
+PondSDNApply (`SDN.Allocate`), PondAudit (`Sys.Audit`), PondBridge (`SDN.Use`,
+only if `pond_template_bridges` is set). Every ACL is granted to both the user
+and the token, because a privilege-separated token gets the intersection of the
+two. `VM.Console` is not needed: the console route only redirects to the noVNC
+URL. If a console relay returns, add it to the playbook and to
+`_VM_PRIVS_CLONES` together.
+
+Never granted: anything on `/vms` or `/vms/300-303`, `/access`, `/nodes` (except
+the optional audit), the storage root, the `localnetwork` zone root, the pool
+root, and any of `Permissions.Modify`, `Sys.Modify`, `Sys.Console`,
+`User.Modify`, `Pool.Allocate`, `Datastore.Allocate`, `VM.Config.Disk`.
+
+What the app refuses (all fail closed):
+
+- a `@pam` token, a malformed token ID, a missing secret or an empty pool: at
+  connect time, and at start-up in production;
+- TLS verification off in production, or a `PROXMOX_CA_BUNDLE` that does not
+  exist. In development an explicit `PROXMOX_VERIFY_SSL=0` works but logs a
+  warning on every connect;
+- cloning, starting or deleting a VM in `PROXMOX_PROTECTED_VMIDS`, or accepting
+  a `nextid` inside that range;
+- launching when the token holds anything beyond the allowlist. Before every
+  launch (cached for `PROXMOX_PRIVILEGE_CHECK_TTL` seconds after a pass, never
+  after a failure) the app reads `GET /access/permissions` and compares it with
+  `allowed_privileges()`. It also reads `GET /cluster/resources?type=vm` (covered by
+  the `VM.Audit` the token already holds) so a `/vms/<id>` grant is only accepted
+  on a VM that is in the clone pool (clone rights) or the template pool (template
+  rights); a VM in neither pool gets nothing. Bridges, storages and the node are
+  limited to the configured ones. Students see a generic error; the offending paths go to
+  the log. Teardown deliberately skips this check so a widened token cannot
+  orphan a running VM.
+
+Operator runbook:
+
+1. Before, for the evidence (on the Proxmox host): `pveum user token list root@pam`
+   and `pveum user token permissions root@pam root`.
+2. Certificate. `openssl x509 -in /etc/pve/nodes/pve/pve-ssl.pem -noout -ext subjectAltName`
+   must show `IP Address:10.1.21.151`. If not, set `PROXMOX_HOST` to a DNS name
+   that is in the SAN and add it to `/etc/hosts` on the app host. If a custom or
+   ACME certificate is served through `pveproxy-ssl.pem`, use the system CA store
+   instead: `PROXMOX_VERIFY_SSL=1` and no bundle. Otherwise copy
+   `/etc/pve/pve-root-ca.pem` to `/etc/pond/pve-root-ca.pem` on the app host
+   (mode 0644) and check it:
+   `openssl s_client -connect 10.1.21.151:8006 -CAfile /etc/pond/pve-root-ca.pem -verify_ip 10.1.21.151 </dev/null 2>/dev/null | grep 'Verify return code'`
+   should say `0 (ok)`.
+3. Run the playbook on the node, `--check` first and then for real (see the
+   header of `playbooks/pond_least_privilege.yml` for the exact commands). Install
+   Ansible on the node and copy just that file over; the repo is not needed. The
+   repo's `ansible.cfg` names a vault password file that will not exist there, so
+   run it from a directory with no `ansible.cfg`, for example
+   `cd /root && ansible-playbook -i 'localhost,' -c local ./pond_least_privilege.yml -e '{"pond_template_vmids":[9101,9201]}' --check`
+   and then again without `--check`. From the repo root it would pick up the
+   repo's `ansible.cfg`, whose `vault_password_file` would abort the run. If an old
+   `/root/pond-launcher.token` exists the playbook refuses to create a token until
+   you `shred -u` it.
+4. Verify: `pveum user token permissions pond@pve launcher` and
+   `pveum acl list | grep -i pond`, then probe from the app host with the new
+   token (the first three should be refused). The secret is read without
+   echo and reaches curl through a process substitution, so it never lands in shell
+   history or `ps`:
+
+   ```bash
+   read -rs PVE_SECRET; C='--cacert /etc/pond/pve-root-ca.pem'
+   H() { printf 'Authorization: PVEAPIToken=pond@pve!launcher=%s' "$PVE_SECRET"; }
+   curl -s -o /dev/null -w '%{http_code}\n' $C -H @<(H) https://10.1.21.151:8006/api2/json/nodes/pve/qemu/300/config   # expect 403
+   curl -s -o /dev/null -w '%{http_code}\n' $C -H @<(H) https://10.1.21.151:8006/api2/json/nodes/pve/qemu/300/status/current   # expect 403 (read-only probe of a protected VM)
+   curl -s $C -H @<(H) https://10.1.21.151:8006/api2/json/access/users   # expect 403 or an empty/own-user-only list; a full user list means the token is too wide
+   curl -s -o /dev/null -w '%{http_code}\n' $C -H @<(H) https://10.1.21.151:8006/api2/json/nodes/pve/execute   # expect 403/501
+   curl -s $C -H @<(H) "https://10.1.21.151:8006/api2/json/cluster/resources?type=vm"   # only the pond pools' VMs
+   unset PVE_SECRET
+   ```
+5. Cut over. On the app host set `PROXMOX_BACKEND=api`,
+   `PROXMOX_TOKEN_ID=pond@pve!launcher`, `PROXMOX_TOKEN_SECRET=<contents of
+   /root/pond-launcher.token>` and `PROXMOX_CA_BUNDLE=/etc/pond/pve-root-ca.pem`,
+   restart, and launch and close one challenge (this also completes the H1
+   acceptance). Then `shred -u /root/pond-launcher.token`.
+6. Revoke root, only after the cut-over works. Look for remaining users of the
+   old token (`zgrep -h 'root@pam!root' /var/log/pveproxy/access.log* | tail`, which includes rotated logs;
+   `grep -c 'root@pam!root' /var/log/pve/tasks/index`), CONFIRM WITH THE OWNERS
+   OF VMs 300-303 that their tooling does not use it, then
+   `pveum user token remove root@pam root` and check with
+   `pveum user token list root@pam`. Remove the old secret from `.env` and
+   `group_vars/secrets.txt` on every host (history rewrite is tracked under M1).
+7. Rotation: `pveum user token remove pond@pve launcher`, rerun the playbook,
+   update the environment, restart.
+
+If launches fail with a 403 in the log: a task-status read means set
+`pond_grant_node_audit: true`; the SDN apply means report the path (the grant on
+`/sdn` is the least certain row above); a clone error naming a bridge means the
+template's bridge is not covered (see the to-do about a placeholder VNet); a clone
+error naming `/` and `Sys.Console` means the template has a host CD-ROM.
+
+Optional: `pvesh set /cluster/options --next-id lower=9000,upper=9999` keeps clone
+vmids away from other projects. It is datacenter-wide, so agree it with the other
+project first.
 
 ## To do
 
@@ -387,6 +505,9 @@ Still outstanding, roughly in the order we think they matter.
       before anyone has scores worth keeping, because `init-db` drops and
       rebuilds everything and we have no migration tool. Either add one (Alembic
       works with SQLite) or agree an export/import step.
+- [ ] **Move template NICs to a placeholder VNet in `pondz`.** Give each template's
+      NICs a VNet with no subnet (for example `pondtpl`) so cloning needs no
+      grant on any local bridge and `pond_template_bridges` can stay empty.
 - [ ] **Per-user network isolation.** Every clone currently lands on the same
       bridge. Until each session gets its own VLAN or SDN zone, students can
       reach each other's machines, and a compromised challenge VM has a route to

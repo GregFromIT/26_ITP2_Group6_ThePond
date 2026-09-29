@@ -416,6 +416,46 @@ process holding a Proxmox API token — see the decision below.
 
 ---
 
+## The app refuses root and over-privileged Proxmox tokens
+
+**Decided:** The Pond runs as its own user, `pond@pve`, through a
+privilege-separated token whose ACLs are created by
+`playbooks/pond_least_privilege.yml`. The adapter (`app/proxmox.py`) refuses to
+connect with a `@pam` token, a malformed ID, a missing secret or an empty pool.
+It verifies TLS (mandatory in production, against `PROXMOX_CA_BUNDLE` or the
+system store), puts every clone in one pool, never touches the protected VMs
+300-303, and before each launch reads `GET /access/permissions` and refuses if the
+token holds anything beyond an allowlist. Production refuses to start with
+settings the adapter would refuse anyway.
+
+**Also considered:**
+
+- *Documenting least privilege only.* That is what we had, and the root token
+  stayed because nothing stopped it. A rule nobody enforces is a suggestion.
+- *A start-up check only.* It misses a token that is widened after the app
+  started, and it says nothing when an operator swaps the token in a running
+  environment. The per-launch check (cached) covers both.
+- *A hard allowlist in Proxmox only.* Proxmox is the real boundary and the
+  playbook sets it, but an app that also checks fails loudly when someone widens
+  the token by hand, instead of silently holding the extra power.
+
+**Why:** a root token turns any bug in the app, or any read of its environment,
+into control of every VM on the cluster including other projects' machines. Both
+layers are cheap; either alone leaves a gap.
+
+**What it costs:**
+
+- One extra API call per launch, once per five minutes per worker.
+- A new privilege need means editing both the playbook and `allowed_privileges()`
+  in `app/proxmox.py`. `tests/test_credentials.py` feeds the playbook's grants
+  through the app's own check, so the two cannot drift unnoticed.
+- Development cannot use a root token; it needs the pond token like production
+  does (or the simulate backend).
+- A token that is too wide blocks launches until it is fixed. Teardown is not
+  blocked, so running VMs are never orphaned.
+
+---
+
 ## Still open
 
 These aren't decided yet, and they're the ones to bring to the next group
@@ -428,9 +468,10 @@ meeting:
 - [ ] **Console authentication.** A ticket-issuing proxy, or Proxmox's
       `/access/ticket` with a short-lived per-session user. Needs a decision on
       which.
-- [ ] **The Proxmox API token.** Currently `root@pam!root`, which is far more
-      access than the app needs. A dedicated user with five specific privileges
-      would be better, and it's about two minutes of work in the Proxmox UI.
+- [x] **The Proxmox API token.** Done in code: the app refuses root and
+      over-privileged tokens, see "The app refuses root and over-privileged
+      Proxmox tokens" above. Running the playbook on the node and revoking the
+      old token are still to do.
 - [ ] **Fetching images by URL safely.** Registered links have to be downloaded
       by hand for now. See the decision above for what the fetch would need.
 - [ ] **Merging the two database layers.** Which way, and when.

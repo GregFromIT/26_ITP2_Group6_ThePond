@@ -42,7 +42,7 @@ from flask import Flask, current_app, redirect, render_template, request, sessio
 from werkzeug.middleware.proxy_fix import ProxyFix
 from werkzeug.routing import IntegerConverter
 
-from . import admin, audit, auth, csrf, dashboard, db, roles, themes, uploads
+from . import admin, audit, auth, csrf, dashboard, db, proxmox, roles, themes, uploads
 from .config import Config
 
 
@@ -94,6 +94,7 @@ def create_app(test_config=None):
         app.config["DATABASE"] = os.path.join(app.root_path, "..", database)
 
     app.config["SECRET_KEY"] = resolve_secret_key(app)
+    check_proxmox_settings(app)
 
     if app.config["TRUSTED_PROXIES"]:
         # Only trust forwarded headers when something in front is known to set
@@ -167,6 +168,28 @@ def resolve_secret_key(app) -> str:
         pass
     app.logger.warning("Generated a development secret key at %s", key_path)
     return key
+
+
+# ------------------------------------------------------ proxmox settings
+
+def check_proxmox_settings(app):
+    """Refuse to start in production with credentials or a channel the adapter
+    would refuse anyway (H3).
+
+    Failing at boot is kinder than failing on the first student's launch: the
+    operator sees it at deploy time, not during a class. Development does not
+    raise — it logs, and launches still fail closed inside proxmox._connect().
+    The simulate backend needs no Proxmox credentials at all.
+    """
+    if app.config["PROXMOX_BACKEND"] != "api":
+        return
+    problems = proxmox.settings_problems(app.config)
+    if not problems:
+        return
+    if app.config["IS_PRODUCTION"]:
+        raise RuntimeError("Refusing to start with PROXMOX_BACKEND=api: " + " ".join(problems))
+    for problem in problems:
+        app.logger.warning("Proxmox settings: %s", problem)
 
 
 # ----------------------------------------------------------- request hooks

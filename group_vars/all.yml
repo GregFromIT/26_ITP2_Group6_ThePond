@@ -1,6 +1,11 @@
 ---
 proxmox_node: "pve"
 proxmox_api_host: "10.1.21.151"
-proxmox_api_user: "root@pam"
-proxmox_api_token_id: "root"
+# H3: these legacy playbooks (and provisioner.py) are deprecated. The token
+# below is The Pond web app's, created by playbooks/pond_least_privilege.yml; it
+# only covers the calls made by pond-sec/app/proxmox.py, so a legacy play that
+# needs more will fail rather than work. Never switch this back to a root/@pam account: a
+# tool that needs more privilege gets its own scoped token.
+proxmox_api_user: "pond@pve"
+proxmox_api_token_id: "launcher"
 vm_storage: "local-lvm"
