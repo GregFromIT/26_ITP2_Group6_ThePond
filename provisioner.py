@@ -1,18 +1,18 @@
 """
 provisioner.py
 
-DEPRECATED - the web app (pond-sec/app/proxmox.py) does not use this module.
-Security fixes only (H3); do not add features.
+Direct Proxmox REST calls via proxmoxer. The web app uses this module through
+pond-sec/app/proxmox.py, which adds the token, privilege and protected-VM
+checks (H3) in front of every call; the legacy CLI tools call it directly.
 
-Direct Proxmox REST calls via proxmoxer - replaces the ansible-playbook
-shell-outs in playbooks/create_instance.yml and playbooks/destroy_instance.yml.
-Same clone+start / stop+delete lifecycle, called directly from cli.py instead
-of shelling out to `ansible-playbook`.
+Replaces the ansible-playbook shell-outs in playbooks/create_instance.yml and
+playbooks/destroy_instance.yml. Same clone+start / stop+delete lifecycle.
 
-Connection settings (node/host/user/token id) come from group_vars/all.yml,
-same values the playbooks used via Jinja vars. The token secret is never
-committed - set it via the THEPOND_PROXMOX_TOKEN_SECRET env var (this replaces
-what group_vars/vault.yml held for Ansible).
+Connection settings: the web app passes its Flask config (PROXMOX_HOST,
+PROXMOX_TOKEN_ID, PROXMOX_TOKEN_SECRET, PROXMOX_VERIFY_SSL, PROXMOX_CA_BUNDLE -
+see pond-sec/app/config.py). Legacy callers pass group_vars/all.yml instead,
+with the token secret in the THEPOND_PROXMOX_TOKEN_SECRET env var and TLS
+settings in THEPOND_PROXMOX_CA_BUNDLE / THEPOND_PROXMOX_VERIFY_SSL.
 """
 
 import os
@@ -81,7 +81,10 @@ def load_config() -> dict:
 
 
 def get_client(config: dict) -> ProxmoxAPI:
-    token_secret = os.environ.get(TOKEN_SECRET_ENV)
+    # The web app's Flask config carries the secret and TLS settings itself
+    # (pond-sec/app/config.py), so the adapter's checks and this connection read
+    # the same values. Legacy callers pass group_vars and use the env vars.
+    token_secret = config.get("PROXMOX_TOKEN_SECRET") or os.environ.get(TOKEN_SECRET_ENV)
     if not token_secret:
         raise RuntimeError(
             f"Set {TOKEN_SECRET_ENV} to the Proxmox API token secret "
@@ -90,8 +93,11 @@ def get_client(config: dict) -> ProxmoxAPI:
     # H3: TLS is verified (a CA bundle path may be given), and a @pam token -
     # a Linux account on the hypervisor, root@pam bypassing every permission
     # check - is refused outright.
-    verify = os.environ.get("THEPOND_PROXMOX_CA_BUNDLE") or (
-        os.environ.get("THEPOND_PROXMOX_VERIFY_SSL", "1") == "1")
+    if "PROXMOX_VERIFY_SSL" in config:
+        verify = config.get("PROXMOX_CA_BUNDLE") or bool(config["PROXMOX_VERIFY_SSL"])
+    else:
+        verify = os.environ.get("THEPOND_PROXMOX_CA_BUNDLE") or (
+            os.environ.get("THEPOND_PROXMOX_VERIFY_SSL", "1") == "1")
     if "proxmox_api_host" in config:
         host = config["proxmox_api_host"]
         user = config["proxmox_api_user"]
@@ -189,6 +195,12 @@ def claim_vmid(
     instance_id/template_id are required up front, not filled in after the
     fact, because VMInstance.instance_id/.template_id are NOT NULL foreign
     keys - there is no valid placeholder-row state with them left unset.
+
+    With a least-privilege token, qemu.get()/lxc.get() only list the VMs the
+    token can see (VM.Audit). A VM outside its pools in this range is
+    invisible here, so its vmid can be chosen and the clone then fails with
+    "already exists". That fails safe, but keep other projects' VMs out of
+    this range or in PROTECTED_VMIDS.
     """
     proxmox_used = {vm["vmid"] for vm in client.nodes(node).qemu.get()}
     proxmox_used |= {ct["vmid"] for ct in client.nodes(node).lxc.get()}
@@ -450,6 +462,7 @@ def clone_and_start(
     static_ip: str | None = None,
     proxmox_host: str | None = None,
     gateway: str | None = None,
+    pool: str | None = None,
 ) -> Clone:
     """
     static_ip/proxmox_host: pass both together to bake a static IP into
@@ -467,6 +480,10 @@ def clone_and_start(
     written regardless of what's passed here - forced below rather than
     left to the caller to get right, since passing one there would write
     a gateway line pointing at nothing.
+
+    pool: the Proxmox pool to create the clone in. The web app's
+    least-privilege token (playbooks/pond_least_privilege.yml) may only
+    create VMs in its own pool, so without this every clone is a 403.
     """
     if static_ip is not None and proxmox_host is None:
         raise ValueError("proxmox_host is required when static_ip is set - inject_instance_network needs it to SSH in")
@@ -477,6 +494,8 @@ def clone_and_start(
     options = {"newid": vmid, "name": label[:63], "full": 1 if full_clone else 0, "target": node}
     if full_clone:
         options["storage"] = storage
+    if pool:
+        options["pool"] = pool
     try:
         _refuse_protected(vmid)   # claim_vmid never returns one; belt and braces
         task = client.nodes(node).qemu(template_vmid).clone.post(**options)

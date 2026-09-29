@@ -1,19 +1,22 @@
 """Checks that The Pond only ever holds, and trusts, what it should (H3).
 
-Run with:  python -m tests.test_credentials      (no pytest needed)
+Run with:  python3 -m tests.test_credentials      (no pytest needed)
 
 H3 was a root@pam API token that could do anything to every VM on the cluster,
 reached over a connection that did not verify the hypervisor's certificate.
 This file pins the fix: which tokens the adapter will accept, when TLS may be
 off, that clones stay in their pool and away from other projects' VMs, that the
 adapter refuses to launch with a token wider than it needs, and that the
-artefacts shipped alongside (the Ansible playbook, the legacy tools' settings)
-agree with all of that.
+artefacts shipped alongside (the Ansible playbook, provisioner.py, the legacy
+tools' settings) agree with all of that.
 
-Nothing here opens a network connection. A fake `proxmoxer` module is installed
-before the app is imported, so even a regression that reaches for the real
-client only records the attempt; everything else is driven through the shared
-in-memory FakeProxmox (tests/fake_proxmox.py).
+Nothing here opens a network connection. A fake `proxmoxer` package is
+installed before the app is imported, so even a regression that reaches for the
+real client only records the attempt. app/proxmox.py is a shim over
+provisioner.py: the shim's own rules (token, TLS, protected VMs, privilege
+self-check) are driven through the shared in-memory FakeProxmox
+(tests/fake_proxmox.py), and provisioner's clone/destroy are replaced with
+recorders, so these checks test the shim, not the hypervisor.
 
 ADDING A CHECK: put it in the section it belongs to. Sections run through
 section(), so a section that crashes against old code reports a FAIL instead of
@@ -33,14 +36,17 @@ import types
 sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 
 # Nothing in the developer's shell may change what these checks see.
-for _name in ("PROXMOX_TOKEN_ID", "PROXMOX_VERIFY_SSL", "PROXMOX_CA_BUNDLE", "PROXMOX_POOL",
-              "PROXMOX_PROTECTED_VMIDS", "RANGE_ENV", "PROXMOX_BACKEND", "PROXMOX_SDN_ZONE",
+for _name in ("PROXMOX_TOKEN_ID", "PROXMOX_TOKEN_SECRET", "THEPOND_PROXMOX_TOKEN_SECRET",
+              "PROXMOX_VERIFY_SSL", "PROXMOX_CA_BUNDLE", "PROXMOX_POOL",
+              "PROXMOX_PROTECTED_VMIDS", "RANGE_ENV", "PROXMOX_SDN_ZONE",
               "PROXMOX_TEMPLATE_POOL", "PROXMOX_PRIVILEGE_CHECK_TTL", "PROXMOX_HOST",
               "PROXMOX_TEMPLATE_BRIDGES", "PROXMOX_TEMPLATE_STORAGES", "PROXMOX_STORAGE",
               "PROXMOX_NODE"):
     os.environ.pop(_name, None)
 
-# A stand-in proxmoxer that only records how it was called.
+# A stand-in proxmoxer that only records how it was called. provisioner.py
+# imports proxmoxer.tools and proxmoxer.core too, so the fake is a package with
+# those two submodules.
 _connections = []
 
 
@@ -49,9 +55,31 @@ class _RecordingAPI:
         _connections.append((host, kwargs))
 
 
+class _FakeTasks:
+    @staticmethod
+    def blocking_status(*args, **kwargs):
+        return {"status": "stopped", "exitstatus": "OK"}
+
+
+class _FakeResourceException(Exception):
+    def __init__(self, status_code=500, content=""):
+        super().__init__(content)
+        self.status_code = status_code
+        self.content = content
+
+
 _fake_module = types.ModuleType("proxmoxer")
+_fake_module.__path__ = []                      # a package, so submodules resolve
 _fake_module.ProxmoxAPI = _RecordingAPI
+_fake_tools = types.ModuleType("proxmoxer.tools")
+_fake_tools.Tasks = _FakeTasks
+_fake_core = types.ModuleType("proxmoxer.core")
+_fake_core.ResourceException = _FakeResourceException
+_fake_module.tools = _fake_tools
+_fake_module.core = _fake_core
 sys.modules["proxmoxer"] = _fake_module
+sys.modules["proxmoxer.tools"] = _fake_tools
+sys.modules["proxmoxer.core"] = _fake_core
 
 import jinja2                                   # noqa: E402
 import yaml                                     # noqa: E402
@@ -76,11 +104,26 @@ def section(name, fn):
         check(f"{name}: section ran without crashing ({type(exc).__name__}: {exc})", False)
 
 
-_real_connect = proxmox._connect
+_real_client = proxmox._client
+_real_core_clone = proxmox._core.clone_and_start
+_real_core_destroy = proxmox._core.stop_and_destroy
 _MISSING = object()
 _HERE = os.path.dirname(os.path.abspath(__file__))
 SEC_ROOT = os.path.dirname(_HERE)                       # pond-sec/
 REPO_ROOT = os.path.dirname(SEC_ROOT)
+
+# What the shim handed to provisioner: ("clone" | "destroy", vmid, kwargs).
+_core_calls = []
+
+
+def _stub_clone(client, template_vmid, node, **kwargs):
+    _core_calls.append(("clone", template_vmid, kwargs))
+    return proxmox.Clone(vmid=getattr(client, "next_vmid", 9001), node=node,
+                         console_url="", status="running")
+
+
+def _stub_destroy(client, vmid, node, vnet=None):
+    _core_calls.append(("destroy", vmid, {"vnet": vnet}))
 
 
 def read(*parts):
@@ -93,7 +136,7 @@ def read(*parts):
 def _scratch_config(**overrides):
     scratch = tempfile.mkdtemp(prefix="pondsec-credentials-")
     config = {"DATABASE": os.path.join(scratch, "range.sqlite"), "TESTING": True,
-              "SECRET_KEY": "test", "PROXMOX_BACKEND": "api",
+              "SECRET_KEY": "test",
               "PROXMOX_TOKEN_ID": "pond@pve!launcher", "PROXMOX_TOKEN_SECRET": "unused",
               "PROXMOX_TASK_TIMEOUT": 5,
               "SQLALCHEMY_BINDS": {"pond": f"sqlite:///{scratch}/pond.db"},
@@ -119,15 +162,16 @@ def make_app(**overrides):
 
 
 def connect_with(**overrides):
-    """Run the REAL _connect() under temporary config. Returns
-    (kwargs the client was built with or None, exception or None)."""
+    """Run the REAL _client() (and so the real provisioner.get_client) under
+    temporary config. Returns (kwargs the client was built with or None,
+    exception or None)."""
     saved = {k: app.config.get(k, _MISSING) for k in overrides}
     app.config.update(overrides)
     _connections.clear()
     try:
         with app.app_context():
             try:
-                _real_connect()
+                _real_client()
             except proxmox.ProxmoxError as exc:
                 return None, exc
         return (_connections[-1][1] if _connections else None), None
@@ -144,8 +188,10 @@ def _reset_cache():
 
 
 def launch(fake, template=FakeProxmox.TEMPLATE, keep_cache=False, connect=None, **cfg):
-    """Run clone_and_start against fake; return (clone, error)."""
-    proxmox._connect = connect or (lambda: fake)
+    """Run the shim's clone_and_start against fake; return (clone, error)."""
+    proxmox._client = connect or (lambda: fake)
+    proxmox._core.clone_and_start = _stub_clone
+    _core_calls.clear()
     if not keep_cache:
         _reset_cache()
     saved = {k: app.config.get(k, _MISSING) for k in cfg}
@@ -153,11 +199,13 @@ def launch(fake, template=FakeProxmox.TEMPLATE, keep_cache=False, connect=None, 
     try:
         with app.app_context():
             try:
-                return proxmox.clone_and_start(template, "pve", "student-c1"), None
+                return proxmox.clone_and_start(template, "pve", "student-c1",
+                                               instance_id=1, template_id=1), None
             except proxmox.ProxmoxError as exc:
                 return None, exc
     finally:
-        proxmox._connect = _real_connect
+        proxmox._client = _real_client
+        proxmox._core.clone_and_start = _real_core_clone
         for key, value in saved.items():
             if value is _MISSING:
                 app.config.pop(key, None)
@@ -166,7 +214,9 @@ def launch(fake, template=FakeProxmox.TEMPLATE, keep_cache=False, connect=None, 
 
 
 def destroy(fake, vmid, connect=None):
-    proxmox._connect = connect or (lambda: fake)
+    proxmox._client = connect or (lambda: fake)
+    proxmox._core.stop_and_destroy = _stub_destroy
+    _core_calls.clear()
     try:
         with app.app_context():
             try:
@@ -175,11 +225,12 @@ def destroy(fake, vmid, connect=None):
             except proxmox.ProxmoxError as exc:
                 return exc
     finally:
-        proxmox._connect = _real_connect
+        proxmox._client = _real_client
+        proxmox._core.stop_and_destroy = _real_core_destroy
 
 
-def calls(fake, method, suffix):
-    return [c for c in fake.calls if c[0] == method and c[1].endswith(suffix)]
+def cloned():
+    return [c for c in _core_calls if c[0] == "clone"]
 
 
 def with_permission(path, *privileges):
@@ -236,6 +287,8 @@ def token_identity():
     kwargs, exc = connect_with()
     check("the pond@pve token is accepted and split correctly",
           kwargs and kwargs.get("user") == "pond@pve" and kwargs.get("token_name") == "launcher")
+    check("the secret from the app's config is the one used",
+          kwargs and kwargs.get("token_value") == "unused")
 
     parse = getattr(proxmox, "parse_token_id", None)
 
@@ -280,7 +333,7 @@ def tls():
 # ------------------------------------------------------------ startup rules
 
 def startup():
-    good = dict(IS_PRODUCTION=True, SECRET_KEY="x", PROXMOX_BACKEND="api",
+    good = dict(IS_PRODUCTION=True, SECRET_KEY="x",
                 PROXMOX_TOKEN_ID="pond@pve!launcher", PROXMOX_TOKEN_SECRET="s",
                 PROXMOX_CA_BUNDLE=CA_PATH, PROXMOX_VERIFY_SSL=True)
     _, exc = make_app(**dict(good, PROXMOX_TOKEN_ID="root@pam!root"))
@@ -291,12 +344,8 @@ def startup():
     check("production refuses to start with no token ID", isinstance(exc, RuntimeError))
     started, exc = make_app(**good)
     check("production starts with the pond token and a CA bundle", started is not None and exc is None)
-    started, exc = make_app(IS_PRODUCTION=True, SECRET_KEY="x", PROXMOX_BACKEND="simulate",
-                            PROXMOX_TOKEN_ID=None, PROXMOX_TOKEN_SECRET=None)
-    check("production with the simulate backend needs no Proxmox credentials",
-          started is not None and exc is None)
     started, exc = make_app(PROXMOX_TOKEN_ID=None, PROXMOX_TOKEN_SECRET=None)
-    check("development with the api backend still starts (launches fail closed instead)",
+    check("development still starts without credentials (launches fail closed instead)",
           started is not None and exc is None)
 
 
@@ -305,28 +354,27 @@ def startup():
 def pool_and_protected():
     fake = FakeProxmox()
     clone, err = launch(fake)
-    check("a launch sends pool=pond-clones on the clone",
-          clone is not None and any(kw.get("pool") == "pond-clones"
-                                    for _, _, kw in calls(fake, "POST", "clone")))
-    check("the new clone lands in the pool", 9001 in fake.pools.get("pond-clones", set()))
+    check("a launch asks provisioner for pool=pond-clones",
+          clone is not None and any(kw.get("pool") == "pond-clones" for _, _, kw in cloned()))
 
     touched = []
     fake = FakeProxmox()
     clone, err = launch(fake, template=301, connect=lambda: touched.append(1) or fake)
     check("cloning a protected template (301) is refused", clone is None and "protected" in message(err))
-    check("...without contacting Proxmox", not touched and not fake.calls)
+    check("...without contacting Proxmox", not touched and not fake.calls and not cloned())
 
     touched = []
     fake = FakeProxmox()
     err = destroy(fake, 300, connect=lambda: touched.append(1) or fake)
     check("tearing down a protected vmid (300) is refused without contacting Proxmox",
-          err is not None and "protected" in message(err) and not touched and not fake.calls)
+          err is not None and "protected" in message(err) and not touched and not fake.calls
+          and not _core_calls)
 
-    fake = FakeProxmox()
-    fake.next_vmid = 302
-    clone, err = launch(fake)
-    check("a nextid inside the protected range is refused before cloning",
-          clone is None and "protected" in message(err) and not calls(fake, "POST", "clone"))
+    provisioner = read("provisioner.py")
+    check("provisioner never allocates a protected vmid",
+          "PROTECTED_VMIDS" in _function_body(provisioner, "claim_vmid"))
+    check("provisioner creates the clone in the pool it is given",
+          'options["pool"] = pool' in _function_body(provisioner, "clone_and_start"))
 
 
 # --------------------------------------------------------- privilege check
@@ -342,8 +390,7 @@ def privilege_check():
     fake.permissions = copy.deepcopy(ROOT_PERMISSIONS)
     clone, err = launch(fake)
     check("a root-equivalent token is refused", clone is None and "over-privileged" in message(err))
-    check("...before anything is cloned or networked",
-          not calls(fake, "POST", "clone") and not fake.vnets and set(fake.vms) == {FakeProxmox.TEMPLATE})
+    check("...before anything is cloned or networked", not cloned() and not fake.vnets)
     check("...and the student is not shown the privilege list", "Sys.Modify" not in message(err))
 
     def attempt(path, *privileges, setup=None, **cfg):
@@ -383,6 +430,10 @@ def privilege_check():
           clone is not None and err is None)
     check("clone-pool privileges on a VM in the template pool are refused",
           over_privileged("/vms/9500", *sorted(proxmox._VM_PRIVS_CLONES), setup=add_vm(9500, "pond-templates")))
+    clone, err, _ = attempt("/pool/pond-clones", "VM.Console")
+    check("VM.Console on the clone pool is allowed (the console relay needs it)",
+          clone is not None and err is None)
+    check("VM.Console on the template pool is refused", over_privileged("/pool/pond-templates", "VM.Console"))
     check("SDN rights on another zone are refused", over_privileged("/sdn/zones/other", "SDN.Use"))
     check("SDN.Use on every local bridge is refused", over_privileged("/sdn/zones/localnetwork", "SDN.Use"))
     clone, err, _ = attempt("/sdn/zones/localnetwork/vmbr0", "SDN.Use", PROXMOX_TEMPLATE_BRIDGES="vmbr0")
@@ -411,7 +462,7 @@ def privilege_check():
     fake.resources_error = True
     clone, err = launch(fake)
     check("an unreadable resource listing refuses the launch",
-          clone is None and "Could not read" in message(err) and not calls(fake, "POST", "clone"))
+          clone is None and "Could not read" in message(err) and not cloned())
 
     allowed = getattr(proxmox, "allowed_privileges", None)
     with app.app_context():
@@ -422,19 +473,18 @@ def privilege_check():
         check("/vms/301/ (trailing slash) is still protected VM 301",
               allowed("/vms/301/", cfg, {301: "pond-clones"}) == frozenset())
         try:
-            odd = allowed("/vms/\u00b2", cfg, {})
+            odd = allowed("/vms/²", cfg, {})
         except Exception:
             odd = None
         check("/vms/<superscript two> is simply not a VM path (no crash, no privileges)", odd == frozenset())
 
-
     fake = FakeProxmox()
     _reset_cache()
     first, _ = launch(fake, keep_cache=True, PROXMOX_PRIVILEGE_CHECK_TTL=300)
-    fake.next_vmid = 9002
     second, _ = launch(fake, keep_cache=True, PROXMOX_PRIVILEGE_CHECK_TTL=300)
     check("a passed check is cached",
-          first and second and len(calls(fake, "GET", "access/permissions")) == 1)
+          first and second
+          and len([c for c in fake.calls if c[:2] == ("GET", "access/permissions")]) == 1)
 
     fake = FakeProxmox()
     fake.permissions = copy.deepcopy(ROOT_PERMISSIONS)
@@ -442,22 +492,23 @@ def privilege_check():
     first = launch(fake, keep_cache=True, PROXMOX_PRIVILEGE_CHECK_TTL=300)
     second = launch(fake, keep_cache=True, PROXMOX_PRIVILEGE_CHECK_TTL=300)
     check("a failed check is never cached",
-          first[1] and second[1] and len(calls(fake, "GET", "access/permissions")) == 2)
+          first[1] and second[1]
+          and len([c for c in fake.calls if c[:2] == ("GET", "access/permissions")]) == 2)
 
     fake = FakeProxmox()
     _reset_cache()
     first, _ = launch(fake, keep_cache=True, PROXMOX_PRIVILEGE_CHECK_TTL=0)
-    fake.next_vmid = 9002
     second, _ = launch(fake, keep_cache=True, PROXMOX_PRIVILEGE_CHECK_TTL=0)
     check("TTL 0 re-checks every launch",
-          first and second and len(calls(fake, "GET", "access/permissions")) == 2)
+          first and second
+          and len([c for c in fake.calls if c[:2] == ("GET", "access/permissions")]) == 2)
 
     fake = FakeProxmox()
     clone, _ = launch(fake)
     fake.permissions = copy.deepcopy(ROOT_PERMISSIONS)
     err = destroy(fake, 9001)
     check("teardown is not blocked by the self-check (no orphaned VMs)",
-          clone is not None and err is None and 9001 not in fake.vms)
+          clone is not None and err is None and ("destroy", 9001, {"vnet": None}) in _core_calls)
 
 
 # ------------------------------------------------------ delivered artefacts
@@ -569,8 +620,11 @@ def artefacts():
     granted = {p for privs in roles.values() for p in privs}
     dangerous = getattr(proxmox, "DANGEROUS_PRIVILEGES", None)
     check("the playbook grants nothing dangerous",
-          dangerous is not None and not (granted & dangerous)
-          and "VM.Console" not in granted and "VM.Config.Disk" not in granted)
+          dangerous is not None and not (granted & dangerous) and "VM.Config.Disk" not in granted)
+    check("VM.Console is granted on the clone pool only (the console relay needs it)",
+          "VM.Console" in roles["PondClones"]
+          and all("VM.Console" not in privs for name, privs in roles.items() if name != "PondClones")
+          and "VM.Console" not in play["vars"]["pond_forbidden_privileges"])
     check("the playbook creates a privilege-separated token", "--privsep 1" in text)
     all_paths = [r["path"] for r in parsed["pond_desired_acls"] + parsed2["pond_desired_acls"]]
     check("the playbook never grants on /vms paths (including the paths built by set_fact)",
@@ -600,6 +654,9 @@ def artefacts():
 
     provisioner = read("provisioner.py")
     check("provisioner.py no longer disables TLS verification", "verify_ssl=False" not in provisioner)
+    check("provisioner.get_client takes TLS and the secret from the app's config when given it",
+          'config.get("PROXMOX_CA_BUNDLE")' in _function_body(provisioner, "get_client")
+          and 'config.get("PROXMOX_TOKEN_SECRET")' in _function_body(provisioner, "get_client"))
     check("provisioner.py no longer auto-trusts host keys",
           "AutoAddPolicy" not in provisioner and "RejectPolicy" in provisioner)
     check("every provisioner.py function that writes to or acts on a caller-supplied vmid refuses "
@@ -611,6 +668,8 @@ def artefacts():
     check("provisioner.py refuses @pam and realm-less users after stripping whitespace",
           ".strip()" in _function_body(provisioner, "get_client")
           and "not realm" in _function_body(provisioner, "get_client"))
+    check("provisioner's session VNets are in the zone the token is granted",
+          'VNET_ZONE = "pondz"' in provisioner and Config.PROXMOX_SDN_ZONE == "pondz")
     importer = read("import_challenge.py")
     check("import_challenge.py no longer auto-trusts host keys or disables TLS",
           "AutoAddPolicy" not in importer and "RejectPolicy" in importer

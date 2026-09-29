@@ -87,7 +87,7 @@
       - VM.Backup
 
     pond_roles:
-      PondClones: [VM.Allocate, VM.Audit, VM.Config.Network, VM.PowerMgmt]
+      PondClones: [VM.Allocate, VM.Audit, VM.Config.Network, VM.PowerMgmt, VM.Console]
       PondTemplates: [VM.Audit, VM.Clone]
       PondStorage: [Datastore.AllocateSpace]
       PondSDN: [SDN.Allocate, SDN.Audit, SDN.Use]
