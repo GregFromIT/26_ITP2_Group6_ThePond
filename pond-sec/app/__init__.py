@@ -17,7 +17,7 @@ this file is the map of the codebase:
     security.py    hashing, lockout rules, reset tokens
     throttle.py    rate limits
     audit.py       security event log
-    proxmox.py     hypervisor adapter (simulate | api)
+    proxmox.py     hypervisor adapter (shim over provisioner.py) + token/TLS checks
 
 ADDING A BLUEPRINT:
     1. write app/yourthing.py with `bp = Blueprint("yourthing", __name__)`
@@ -47,9 +47,9 @@ _REPO_ROOT = Path(__file__).resolve().parents[2]
 if str(_REPO_ROOT) not in sys.path:
     sys.path.insert(0, str(_REPO_ROOT))
 from db.orm import db as sqla_db  # noqa: E402
- 
-from . import admin, audit, auth, csrf, dashboard, roles, themes
-from .config import Config
+
+from . import admin, audit, auth, csrf, dashboard, proxmox, roles, themes  # noqa: E402
+from .config import Config  # noqa: E402
 
 
 def create_app(test_config=None):
@@ -67,6 +67,7 @@ def create_app(test_config=None):
     os.makedirs(app.instance_path, exist_ok=True)
 
     app.config["SECRET_KEY"] = resolve_secret_key(app)
+    check_proxmox_settings(app)
 
     if app.config["TRUSTED_PROXIES"]:
         # Only trust forwarded headers when something in front is known to set
@@ -138,6 +139,28 @@ def resolve_secret_key(app) -> str:
         pass
     app.logger.warning("Generated a development secret key at %s", key_path)
     return key
+
+
+# ------------------------------------------------------ proxmox settings
+
+def check_proxmox_settings(app):
+    """Refuse to start in production with credentials or a channel the adapter
+    would refuse anyway (H3).
+
+    Failing at boot is kinder than failing on the first student's launch: the
+    operator sees it at deploy time, not during a class. Development does not
+    raise — it logs, and launches still fail closed inside proxmox._client().
+
+    The integrated adapter always talks to a real cluster (there is no simulate
+    backend any more), so there is no backend switch to skip on.
+    """
+    problems = proxmox.settings_problems(app.config)
+    if not problems:
+        return
+    if app.config["IS_PRODUCTION"]:
+        raise RuntimeError("Refusing to start with these Proxmox settings: " + " ".join(problems))
+    for problem in problems:
+        app.logger.warning("Proxmox settings: %s", problem)
 
 
 # ----------------------------------------------------------- request hooks
@@ -264,14 +287,14 @@ def register_filters(app):
     """
     @app.template_filter("stamp")
     def stamp(value, fallback="—"):
-       if not value:
-           return fallback
-       if isinstance(value, str):
-           try:
-               value = datetime.strptime(value[:19], "%Y-%m-%d %H:%M:%S")
-           except ValueError:
-               return value
-       return value.strftime("%d %b %Y, %H:%M")
+        if not value:
+            return fallback
+        if isinstance(value, str):
+            try:
+                value = datetime.strptime(value[:19], "%Y-%m-%d %H:%M:%S")
+            except ValueError:
+                return value
+        return value.strftime("%d %b %Y, %H:%M")
 
     @app.template_filter("duration")
     def duration(seconds, fallback="—"):

@@ -115,19 +115,36 @@ def load_config() -> dict:
     return cfg
 
 
+# H3: TLS is verified (THEPOND_PROXMOX_CA_BUNDLE for a self-signed cluster) and SSH
+# host keys must already be known - nothing is trusted on first sight. This
+# remains a root-capable admin tool; that is a documented residual risk.
 def connect_api(cfg: dict) -> ProxmoxAPI:
+    user = cfg["THEPOND_PROXMOX_USER"].strip()
+    realm = user.rpartition("@")[2].strip().lower() if "@" in user else ""
+    if not realm or realm == "pam":
+        # A realm-less user is refused too: Proxmox would read it as @pam.
+        sys.exit("Refusing a @pam API token (H3); use a scoped @pve token.")
     return ProxmoxAPI(
         cfg["THEPOND_PROXMOX_HOST"],
-        user=cfg["THEPOND_PROXMOX_USER"],
+        user=user,
         token_name=cfg["THEPOND_PROXMOX_TOKEN_NAME"],
         token_value=cfg["THEPOND_PROXMOX_TOKEN_SECRET"],
-        verify_ssl=False,
+        verify_ssl=os.environ.get("THEPOND_PROXMOX_CA_BUNDLE")
+        or os.environ.get("THEPOND_PROXMOX_VERIFY_SSL", "1") == "1",
     )
 
 
 def connect_ssh(cfg: dict) -> paramiko.SSHClient:
+    if (cfg["THEPOND_PROXMOX_SSH_USER"].strip() == "root"
+            and os.environ.get("THEPOND_PROXMOX_ALLOW_ROOT_SSH") != "1"):
+        sys.exit("Root SSH to the hypervisor is refused (H3). Use a restricted account with a "
+                 "forced-command wrapper, or set THEPOND_PROXMOX_ALLOW_ROOT_SSH=1 knowingly.")
     client = paramiko.SSHClient()
-    client.set_missing_host_key_policy(paramiko.AutoAddPolicy())
+    client.load_system_host_keys()
+    known_hosts = os.environ.get("THEPOND_PROXMOX_KNOWN_HOSTS")
+    if known_hosts:
+        client.load_host_keys(known_hosts)
+    client.set_missing_host_key_policy(paramiko.RejectPolicy())
     client.connect(
         hostname=cfg["THEPOND_PROXMOX_HOST"],
         username=cfg["THEPOND_PROXMOX_SSH_USER"],

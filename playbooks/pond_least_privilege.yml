@@ -1,0 +1,402 @@
+---
+# playbooks/pond_least_privilege.yml
+#
+# Creates The Pond web app's OWN Proxmox identity: the user pond@pve, a
+# privilege-separated API token pond@pve!launcher, and exactly the roles and ACLs
+# app/proxmox.py needs to clone, network, start, stop and delete challenge VMs.
+# It replaces the root@pam token the app used to run with (H3 in
+# pond-sec/docs/SECURITY_ASSESSMENT.md).
+#
+# Run it ON the Proxmox node, as root (it calls pveum/pvesh directly; there is no
+# SSH and no API token involved). It never touches VMs 300-303, which belong to
+# another project, and it refuses to run if one of them is offered as a template.
+#
+# Usage:
+#   ansible-playbook -i 'localhost,' -c local playbooks/pond_least_privilege.yml \
+#     -e '{"pond_template_vmids":[9101,9201]}' --check     # dry run
+#   ansible-playbook -i 'localhost,' -c local playbooks/pond_least_privilege.yml \
+#     -e '{"pond_template_vmids":[9101,9201]}'
+#
+# Ansible must be installed on the node, and only this file needs to be there.
+# Copy just the playbook over and run it from a directory with no ansible.cfg:
+#   cd /root && ansible-playbook -i 'localhost,' -c local ./pond_least_privilege.yml \
+#     -e '{"pond_template_vmids":[9101,9201]}' --check      # then again without --check
+# Running from the repo root instead picks up the repo's ansible.cfg, whose
+# vault_password_file (~/.vault_pass) does not exist on the node and aborts the run.
+#
+# The token secret is written once to pond_token_secret_file (0600). Copy it into
+# the app's environment as PROXMOX_TOKEN_SECRET, then `shred -u` the file.
+#
+# KEEP IN STEP WITH pond-sec/app/proxmox.py: the roles below are the allowlist
+# the app checks the token against before every launch. tests/test_credentials.py
+# feeds this file's grants through the app's own check, so a drift fails a test.
+#
+# Template networking (recommended): move each template's NICs to a placeholder
+# VNet in pondz (e.g. `pondtpl`, no subnet). Then cloning needs no grant on any
+# local bridge. Otherwise list the bridges in pond_template_bridges and they get
+# SDN.Use, and only those.
+
+- name: The Pond - least-privilege Proxmox token
+  hosts: localhost
+  connection: local
+  gather_facts: false
+
+  vars:
+    pond_user: "pond@pve"
+    pond_token_name: "launcher"
+    pond_token_expire: 0              # epoch seconds; 0 = never. Set end of semester.
+    pond_clone_pool: "pond-clones"
+    pond_template_pool: "pond-templates"
+    pond_template_vmids: []           # required: the templates students may clone
+    pond_sdn_zone: "pondz"
+    # pond_storages and pond_template_bridges must match the app's
+    # PROXMOX_TEMPLATE_STORAGES / PROXMOX_STORAGE and PROXMOX_TEMPLATE_BRIDGES:
+    # the self-check refuses any grant outside them.
+    pond_storages: ["local-lvm"]
+    pond_template_bridges: []
+    pond_protected_vmids: [300, 301, 302, 303]
+    pond_node: "pve"
+    pond_grant_node_audit: false      # only if task-status reads return 403
+    pond_token_secret_file: "/root/pond-launcher.token"
+
+    # Never present on the token. Checked again after everything is granted.
+    pond_forbidden_privileges:
+      - Permissions.Modify
+      - Sys.Modify
+      - Sys.Console
+      - Sys.PowerMgmt
+      - Sys.Incoming
+      - Sys.Syslog
+      - User.Modify
+      - Realm.Allocate
+      - Realm.AllocateUser
+      - Group.Allocate
+      - Pool.Allocate
+      - Datastore.Allocate
+      - Mapping.Modify
+      - VM.Console
+      - VM.Config.Disk
+      - VM.Config.CPU
+      - VM.Config.Memory
+      - VM.Config.Options
+      - VM.Config.HWType
+      - VM.Config.Cloudinit
+      - VM.Config.CDROM
+      - VM.Migrate
+      - VM.Snapshot
+      - VM.Backup
+
+    pond_roles:
+      PondClones: [VM.Allocate, VM.Audit, VM.Config.Network, VM.PowerMgmt]
+      PondTemplates: [VM.Audit, VM.Clone]
+      PondStorage: [Datastore.AllocateSpace]
+      PondSDN: [SDN.Allocate, SDN.Audit, SDN.Use]
+      PondSDNApply: [SDN.Allocate]
+      PondAudit: [Sys.Audit]
+      PondBridge: [SDN.Use]
+
+    # The fixed grants. Storage, bridge and node grants depend on the lists
+    # above and are added by set_fact below. Each is given to BOTH the user and
+    # the token: a privilege-separated token gets the intersection of the two.
+    pond_acls:
+      - { path: "/pool/{{ pond_clone_pool }}", role: PondClones, propagate: 1 }
+      - { path: "/pool/{{ pond_template_pool }}", role: PondTemplates, propagate: 1 }
+      - { path: "/sdn/zones/{{ pond_sdn_zone }}", role: PondSDN, propagate: 1 }
+      - { path: "/sdn", role: PondSDNApply, propagate: 0 }
+      - { path: "/", role: PondAudit, propagate: 0 }
+
+  tasks:
+    # ------------------------------------------------------------ pre-flight
+    - name: Locate pveum
+      ansible.builtin.stat:
+        path: /usr/sbin/pveum
+      register: pveum_bin
+
+    - name: Refuse to run anywhere but a Proxmox node
+      ansible.builtin.assert:
+        that: pveum_bin.stat.exists
+        fail_msg: "Run this playbook on the Proxmox node itself, as root."
+
+    - name: Refuse protected VMs as templates
+      ansible.builtin.assert:
+        that:
+          - pond_template_vmids | length > 0
+          - pond_template_vmids | intersect(pond_protected_vmids) | length == 0
+        fail_msg: "Refusing: VMs 300-303 belong to another project and must never be Pond templates. Pass pond_template_vmids with your own template vmids."
+
+    - name: Read SDN zones
+      ansible.builtin.command: pvesh get /cluster/sdn/zones --output-format json
+      register: zones_raw
+      changed_when: false
+      check_mode: false
+
+    - name: The session zone must exist and be a Simple zone
+      ansible.builtin.assert:
+        that:
+          - (zones_raw.stdout | from_json | selectattr('zone', 'equalto', pond_sdn_zone) | list | length) == 1
+          - (zones_raw.stdout | from_json | selectattr('zone', 'equalto', pond_sdn_zone) | map(attribute='type') | list | first) == 'simple'
+        fail_msg: "SDN zone {{ pond_sdn_zone }} must exist and be of type simple (create it once by hand)."
+
+    - name: Read all VMs
+      ansible.builtin.command: pvesh get /cluster/resources --type vm --output-format json
+      register: resources_raw
+      changed_when: false
+      check_mode: false
+
+    - name: Every template must exist, be a template, and not sit in another pool
+      ansible.builtin.assert:
+        that:
+          - (resources_raw.stdout | from_json | selectattr('vmid', 'equalto', item | int) | list | length) == 1
+          - (resources_raw.stdout | from_json | selectattr('vmid', 'equalto', item | int) | map(attribute='template', default=0) | list | first | int) == 1
+          - (resources_raw.stdout | from_json | selectattr('vmid', 'equalto', item | int) | map(attribute='pool', default=pond_template_pool) | list | first) == pond_template_pool
+        fail_msg: "VM {{ item }} must exist, be a template, and be in no pool other than {{ pond_template_pool }}."
+      loop: "{{ pond_template_vmids }}"
+
+    - name: No protected VM may already be in a Pond pool
+      ansible.builtin.assert:
+        that:
+          - (resources_raw.stdout | from_json | selectattr('vmid', 'equalto', item | int) | map(attribute='pool', default='') | list | first | default('')) not in [pond_clone_pool, pond_template_pool]
+        fail_msg: "Protected VM {{ item }} is in a Pond pool; remove it before continuing."
+      loop: "{{ pond_protected_vmids }}"
+      when: (resources_raw.stdout | from_json | selectattr('vmid', 'equalto', item | int) | list | length) > 0
+
+    - name: Read VNets in the session zone
+      ansible.builtin.command: pvesh get /cluster/sdn/vnets --output-format json
+      register: vnets_raw
+      changed_when: false
+      check_mode: false
+
+    - name: Read each template's config
+      ansible.builtin.command: "pvesh get /nodes/{{ pond_node }}/qemu/{{ item }}/config --output-format json"
+      register: template_configs
+      loop: "{{ pond_template_vmids }}"
+      changed_when: false
+      check_mode: false
+
+    - name: A template must have no host CD-ROM, only allowed storages, and only covered bridges
+      ansible.builtin.assert:
+        that:
+          # A physical cdrom makes clone demand Sys.Console on /, which the token must never have.
+          - (cfg | dict2items | selectattr('key', 'match', '^(ide|sata|scsi|virtio)[0-9]+$') | map(attribute='value') | map('string') | select('match', '^(cdrom|/dev/)') | list | length) == 0
+          # Every disk lives on a storage the token is granted.
+          - (cfg | dict2items | selectattr('key', 'match', '^(ide|sata|scsi|virtio|efidisk|tpmstate)[0-9]+$') | map(attribute='value') | map('string') | reject('match', '^(none|cdrom)') | reject('search', 'media=cdrom') | map('regex_replace', ':.*$', '') | difference(pond_storages) | length) == 0
+          # Every NIC bridge is a VNet in the session zone or an explicitly granted bridge.
+          - (cfg | dict2items | selectattr('key', 'match', '^net[0-9]+$') | map(attribute='value') | map('regex_search', 'bridge=([^,]+)', '\\1') | map('first') | difference(vnets_in_zone + pond_template_bridges) | length) == 0
+        fail_msg: >-
+          Template {{ item.item }} cannot be cloned by the least-privilege token: it has a host
+          CD-ROM, a disk outside {{ pond_storages }}, or a NIC on a bridge that is neither a VNet
+          in {{ pond_sdn_zone }} nor listed in pond_template_bridges. Either move its NICs to a
+          placeholder VNet in {{ pond_sdn_zone }} (recommended), or add the bridge to
+          pond_template_bridges.
+      vars:
+        cfg: "{{ item.stdout | from_json }}"
+        vnets_in_zone: "{{ vnets_raw.stdout | from_json | selectattr('zone', 'equalto', pond_sdn_zone) | map(attribute='vnet') | list }}"
+      loop: "{{ template_configs.results }}"
+      loop_control:
+        label: "{{ item.item }}"
+
+    - name: Build the storage, bridge and node grants
+      ansible.builtin.set_fact:
+        # {%- -%} on every tag: a folded scalar joins lines with spaces, and one
+        # leading space makes Ansible keep the result as a string, not a list.
+        pond_desired_acls: >-
+          {%- set out = pond_acls | list -%}
+          {%- for sid in pond_storages -%}{%- set _ = out.append({'path': '/storage/' ~ sid, 'role': 'PondStorage', 'propagate': 0}) -%}{%- endfor -%}
+          {%- for br in pond_template_bridges -%}{%- set _ = out.append({'path': '/sdn/zones/localnetwork/' ~ br, 'role': 'PondBridge', 'propagate': 1}) -%}{%- endfor -%}
+          {%- if pond_grant_node_audit -%}{%- set _ = out.append({'path': '/nodes/' ~ pond_node, 'role': 'PondAudit', 'propagate': 0}) -%}{%- endif -%}
+          {{- out -}}
+        pond_desired_roles: >-
+          {{ pond_roles | dict2items | rejectattr('key', 'equalto', 'PondBridge') | list
+             + (pond_roles | dict2items | selectattr('key', 'equalto', 'PondBridge') | list if pond_template_bridges | length > 0 else []) }}
+
+    # ----------------------------------------------------------------- roles
+    - name: Read existing roles
+      ansible.builtin.command: pveum role list --output-format json
+      register: roles_raw
+      changed_when: false
+      check_mode: false
+
+    - name: Create missing roles
+      ansible.builtin.command: "pveum role add {{ item.key }} --privs \"{{ item.value | sort | join(',') }}\""
+      loop: "{{ pond_desired_roles }}"
+      loop_control:
+        label: "{{ item.key }}"
+      when: (roles_raw.stdout | from_json | selectattr('roleid', 'equalto', item.key) | list | length) == 0
+      changed_when: true
+
+    # No --append: modify REPLACES the privilege set, so a role that was widened
+    # by hand is narrowed back.
+    - name: Reset roles whose privileges drifted
+      ansible.builtin.command: "pveum role modify {{ item.key }} --privs \"{{ item.value | sort | join(',') }}\""
+      loop: "{{ pond_desired_roles }}"
+      loop_control:
+        label: "{{ item.key }}"
+      when:
+        - (roles_raw.stdout | from_json | selectattr('roleid', 'equalto', item.key) | list | length) == 1
+        - ((roles_raw.stdout | from_json | selectattr('roleid', 'equalto', item.key) | map(attribute='privs', default='') | list | first).split(',') | reject('equalto', '') | sort | list) != (item.value | sort | list)
+      changed_when: true
+
+    # ------------------------------------------------------------------ user
+    - name: Read existing users
+      ansible.builtin.command: pveum user list --output-format json
+      register: users_raw
+      changed_when: false
+      check_mode: false
+
+    # Never a password: this account is reachable only through its API token.
+    - name: Create the pond user
+      ansible.builtin.command: "pveum user add {{ pond_user }} --comment \"The Pond web app - API token only, no password\""
+      when: (users_raw.stdout | from_json | selectattr('userid', 'equalto', pond_user) | list | length) == 0
+      changed_when: true
+
+    # ----------------------------------------------------------------- pools
+    - name: Read existing pools
+      ansible.builtin.command: pveum pool list --output-format json
+      register: pools_raw
+      changed_when: false
+      check_mode: false
+
+    - name: Create missing pools
+      ansible.builtin.command: "pveum pool add {{ item }} --comment \"The Pond\""
+      loop: "{{ [pond_clone_pool, pond_template_pool] }}"
+      when: (pools_raw.stdout | from_json | selectattr('poolid', 'equalto', item) | list | length) == 0
+      changed_when: true
+
+    - name: Read template pool members
+      ansible.builtin.command: "pvesh get /pools/{{ pond_template_pool }} --output-format json"
+      register: template_pool_raw
+      changed_when: false
+      check_mode: false
+      failed_when: false
+
+    # No --allow-move: a VM already in another pool is a stop-and-look, not a steal.
+    - name: Put the templates in the template pool
+      ansible.builtin.command: "pveum pool modify {{ pond_template_pool }} --vms {{ item }}"
+      loop: "{{ pond_template_vmids }}"
+      when: >-
+        template_pool_raw.rc != 0 or
+        (item | int) not in ((template_pool_raw.stdout | from_json).get('members', []) | map(attribute='vmid', default=0) | map('int') | list)
+      changed_when: true
+
+    # ----------------------------------------------------------------- token
+    - name: Read the pond user's tokens
+      ansible.builtin.command: "pveum user token list {{ pond_user }} --output-format json"
+      register: tokens_raw
+      changed_when: false
+      check_mode: false
+      failed_when: false
+
+    - name: Work out whether the token exists
+      ansible.builtin.set_fact:
+        pond_token_rows: "{{ (tokens_raw.stdout | from_json | selectattr('tokenid', 'equalto', pond_token_name) | list) if tokens_raw.rc == 0 and tokens_raw.stdout | length > 0 else [] }}"
+
+    - name: An existing token must be privilege-separated
+      ansible.builtin.assert:
+        that: (pond_token_rows | first).privsep | int == 1
+        fail_msg: "Token {{ pond_user }}!{{ pond_token_name }} exists WITHOUT privilege separation, so it would inherit every permission of the user. Remove it with `pveum user token remove {{ pond_user }} {{ pond_token_name }}` and rerun."
+      when: pond_token_rows | length > 0
+
+    # A leftover secret file would hide the new secret on rotation (the old value
+    # would be kept and the new one, which is never printed, lost).
+    - name: Look for a leftover secret file
+      ansible.builtin.stat:
+        path: "{{ pond_token_secret_file }}"
+      register: secret_file
+
+    - name: Refuse to create a token while an old secret file exists
+      ansible.builtin.assert:
+        that: not secret_file.stat.exists
+        fail_msg: "{{ pond_token_secret_file }} already exists. Copy its contents somewhere safe if you still need them, then `shred -u {{ pond_token_secret_file }}` and rerun."
+      when: pond_token_rows | length == 0
+
+    - name: Create the privilege-separated token
+      ansible.builtin.command: "pveum user token add {{ pond_user }} {{ pond_token_name }} --privsep 1 --expire {{ pond_token_expire }} --comment \"The Pond web app\" --output-format json"
+      register: tok
+      when: pond_token_rows | length == 0
+      changed_when: true
+      no_log: true
+
+    - name: Save the token secret once, readable by root only
+      ansible.builtin.copy:
+        content: "{{ (tok.stdout | from_json).value }}"
+        dest: "{{ pond_token_secret_file }}"
+        mode: "0600"
+        force: true
+      when: tok is defined and tok is not skipped and tok.stdout is defined
+      no_log: true
+
+    - name: Say where the secret is
+      ansible.builtin.debug:
+        msg: "Token secret is in {{ pond_token_secret_file }}. Put it in PROXMOX_TOKEN_SECRET, then shred -u the file."
+      when: tok is defined and tok is not skipped
+
+    # ------------------------------------------------------------------ ACLs
+    - name: Read existing ACLs
+      ansible.builtin.command: pveum acl list --output-format json
+      register: acls_raw
+      changed_when: false
+      check_mode: false
+
+    - name: Work out who receives each grant
+      ansible.builtin.set_fact:
+        pond_principals:
+          - { flag: users, id: "{{ pond_user }}", type: user }
+          - { flag: tokens, id: "{{ pond_user }}!{{ pond_token_name }}", type: token }
+        pond_existing_acl_keys: >-
+          {%- set out = [] -%}{%- for a in acls_raw.stdout | from_json -%}{%- set _ = out.append([a.path, a.roleid, a.type, a.ugid, a.propagate | int] | join('|')) -%}{%- endfor -%}{{- out -}}
+
+    # Granted to the user AND the token: a privsep token is the intersection.
+    - name: Grant the ACLs that are missing
+      ansible.builtin.command:
+        argv:
+          - pveum
+          - acl
+          - modify
+          - "{{ item.0.path }}"
+          - --roles
+          - "{{ item.0.role }}"
+          - "--{{ item.1.flag }}"
+          - "{{ item.1.id }}"
+          - --propagate
+          - "{{ item.0.propagate }}"
+      loop: "{{ pond_desired_acls | product(pond_principals) | list }}"
+      loop_control:
+        label: "{{ item.0.path }} {{ item.0.role }} -> {{ item.1.id }}"
+      when: >-
+        ([item.0.path, item.0.role, item.1.type, item.1.id, item.0.propagate | int] | join('|')) not in pond_existing_acl_keys
+      changed_when: true
+
+    - name: Warn about Pond ACLs that are not part of the design
+      ansible.builtin.debug:
+        msg: "Existing ACL not created by this playbook (left alone, review it): {{ item }}"
+      loop: "{{ acls_raw.stdout | from_json | selectattr('ugid', 'in', [pond_user, pond_user ~ '!' ~ pond_token_name]) | list }}"
+      loop_control:
+        label: "{{ item.path }} {{ item.roleid }}"
+      when: >-
+        ([item.path, item.roleid, item.propagate | int] | join('|')) not in
+        (pond_desired_acls | map(attribute='path') | zip(pond_desired_acls | map(attribute='role'), pond_desired_acls | map(attribute='propagate') | map('int')) | map('join', '|') | list)
+
+    # ---------------------------------------------------------- verification
+    - name: Read back the token's effective permissions
+      ansible.builtin.command: "pveum user token permissions {{ pond_user }} {{ pond_token_name }} --output-format json"
+      register: effective_raw
+      changed_when: false
+      check_mode: false
+      when: not ansible_check_mode
+
+    - name: The token holds only what it should
+      ansible.builtin.assert:
+        that:
+          - (perms.get('/', {}) | dict2items | map(attribute='key') | list) == ['Sys.Audit']
+          - "'/vms' not in perms"
+          - (pond_protected_vmids | map('string') | map('regex_replace', '^', '/vms/') | list | intersect(perms.keys() | list) | length) == 0
+          - (perms | dict2items | map(attribute='value') | map('dict2items') | flatten | map(attribute='key') | unique | list | intersect(pond_forbidden_privileges) | length) == 0
+        fail_msg: "The token's effective permissions are wider than intended; see the map printed below."
+      vars:
+        perms: "{{ effective_raw.stdout | from_json }}"
+      when: not ansible_check_mode
+
+    - name: Effective permissions of the token
+      ansible.builtin.debug:
+        var: effective_raw.stdout_lines
+      when: not ansible_check_mode

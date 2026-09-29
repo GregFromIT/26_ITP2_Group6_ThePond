@@ -224,13 +224,21 @@ Flag grading and all the leaderboards.
 - `_ranked()` attaches the ranks and shares them on ties, so ranking behaviour
   only needs changing in one spot.
 
-### `app/proxmox.py` (163 lines)
-The hypervisor adapter, and the only file that knows Proxmox exists.
+### `app/proxmox.py`
+The hypervisor adapter, and the only file in `app/` that knows Proxmox exists.
+It is a thin shim over the shared `provisioner.py`, which does the cloning,
+per-session VNets, firewalling and console tickets.
 
-Two backends behind one interface. `simulate` invents a vmid and a console URL
-so the platform demos without a cluster, and `api` clones and starts real VMs.
-Switching between them is a config change, not a rewrite, because no view
-imports `proxmoxer`.
+The credentials section decides what the adapter will hold (H3).
+`settings_problems()` is a pure check of the Proxmox settings, used by
+`_client()` and by `create_app()` so production refuses to start with a `@pam`
+token, no secret, or TLS off. `_client()` refuses before asking the provisioner
+for a client. Before every launch `_check_token_privileges()` reads
+`GET /access/permissions` and compares it, path by path, with
+`allowed_privileges()`; passes are cached for `PROXMOX_PRIVILEGE_CHECK_TTL`
+seconds, failures never are. The protected vmids are refused on every
+operation. TLS verification and pool placement only take effect once
+`provisioner.get_client()` and `provisioner.clone_and_start()` use them.
 
 ### `app/audit.py` (58 lines)
 The security event log: sign-ins, failures, lockouts, role changes, temporary
@@ -256,6 +264,13 @@ password is never stored readable, that the console URL never ends up in the
 HTML, that a second student gets a 404 on somebody else's session. If one of
 those fails, the fix is almost never the test.
 
+### `tests/test_credentials.py`
+Same shape, no pytest, run with `python -m tests.test_credentials`. Pins which
+tokens and TLS settings the adapter accepts, the protected-VM rules, the
+per-launch privilege self-check, and that the shipped playbook agrees with
+`allowed_privileges()`. It installs a fake `proxmoxer` module first, so it can
+never open a connection.
+
 ### `tools/build_preview.py` (338 lines)
 Builds `preview/pond-sec-preview.html`, the one-file preview of all twelve
 screens that needs nothing installed. It renders the real templates through
@@ -271,7 +286,7 @@ hand-drawn mockup would. Re-run it after any template or CSS change.
 | "That form expired" on submit | `csrf.py`, the form is missing its `_csrf` field |
 | A 403 for someone who should have access | `roles.py`, check the `PERMISSIONS` matrix |
 | Scores look wrong | `scoring.py`, then the views in `schema.sql` |
-| A challenge won't launch | `proxmox.py`, then the `vm` rows in `seed.py` |
+| A challenge won't launch | `proxmox.py` (settings and token check), then `provisioner.py` |
 | A student can't sign in | `security.py` for the lockout, `throttle.py` for the limits |
 | Something changed and nobody knows who | the audit log at `/admin/audit` |
 | A page renders but data is missing | the view that renders it, not the template |
@@ -284,8 +299,9 @@ Kept here as well as in `README.md` so it doesn't get lost:
 
 - [ ] The schema isn't final. Agree it before anyone has scores worth keeping,
       because `init-db` drops everything and we have no migrations yet.
-- [ ] The Proxmox connection is still on `simulate`. The template vmids in
-      `seed.py` are placeholders and need replacing with real ones from `pve`.
 - [ ] `app/seed.py` is the only way to add challenge content. No staff UI for it.
 - [ ] Seeded flags are shared across challenges. Fine for a demo, no good for
       assessment.
+- [ ] `provisioner.get_client()` must verify TLS (`_tls_verify`) and
+      `provisioner.clone_and_start()` must create clones in `PROXMOX_POOL`
+      before the least-privilege token can launch anything.

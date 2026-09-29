@@ -18,6 +18,15 @@ def _bool(name, default):
     return os.environ.get(name, "1" if default else "0") == "1"
 
 
+def verify_flag(value):
+    """PROXMOX_VERIFY_SSL: only an explicit no/off/false/0 turns verification
+    off. _bool() would treat "true", "yes" or an empty string as OFF, and a
+    security control should fail toward on."""
+    if value is None:
+        return True
+    return value.strip().lower() not in ("0", "false", "no", "off")
+
+
 # ADDING A SETTING:
 #   1. add a class attribute below, reading os.environ with a sensible default
 #      (use _int/_bool for typed values)
@@ -74,10 +83,13 @@ class Config:
     PROXMOX_HOST = os.environ.get("PROXMOX_HOST", "10.1.21.151")
     PROXMOX_NODE = os.environ.get("PROXMOX_NODE", "pve")
 
-    # Format is user@realm!tokenname. root@pam!root is what the cluster has
-    # today; see the note in the README about moving to a dedicated,
-    # least-privilege token before this runs for a cohort.
-    PROXMOX_TOKEN_ID = os.environ.get("PROXMOX_TOKEN_ID", "root@pam!root")
+    # Format is user@realm!tokenname, e.g. pond@pve!launcher. There is
+    # deliberately NO default: a default that works is a default nobody
+    # replaces, and the last one was a root@pam token that could do anything to
+    # every VM on the cluster (H3). @pam tokens are refused outright by
+    # app/proxmox.py. Create The Pond's own token with
+    # playbooks/pond_least_privilege.yml.
+    PROXMOX_TOKEN_ID = os.environ.get("PROXMOX_TOKEN_ID")
     # No default, ever. The secret comes from the environment or nowhere.
     PROXMOX_TOKEN_SECRET = os.environ.get("THEPOND_PROXMOX_TOKEN_SECRET")
 
@@ -96,9 +108,42 @@ class Config:
     # reply, since it had no route out.
     PROXMOX_LAB_GATEWAY = os.environ.get("PROXMOX_LAB_GATEWAY", "10.1.20.1")
 
-    # A cluster on an IP address almost certainly has a self-signed certificate,
-    # which fails verification. Either install the cluster CA on this host and
-    # leave this on, or set PROXMOX_VERIFY_SSL=0 and understand that anyone on
-    # the path between here and the hypervisor can then impersonate it.
-    PROXMOX_VERIFY_SSL = _bool("PROXMOX_VERIFY_SSL", IS_PRODUCTION)
+    # Certificate verification is ON everywhere. Without it anyone on the path to
+    # the hypervisor can impersonate it and capture the API token. 0 is refused
+    # in production; in development an explicit 0 works but logs a warning.
+    # A self-signed cluster should use PROXMOX_CA_BUNDLE instead.
+    PROXMOX_VERIFY_SSL = verify_flag(os.environ.get("PROXMOX_VERIFY_SSL"))
+    # Path to a copy of the cluster CA (/etc/pve/pve-root-ca.pem) on this host.
+    # When set it is what the connection is verified against, and it wins over
+    # PROXMOX_VERIFY_SSL=0.
+    PROXMOX_CA_BUNDLE = os.environ.get("PROXMOX_CA_BUNDLE") or None
+
+    # The pool every clone is created in, and the one the API token is scoped
+    # to. Not the same thing as PROXMOX_CLONE_POOL_START below.
+    PROXMOX_POOL = os.environ.get("PROXMOX_POOL", "pond-clones")
+    PROXMOX_TEMPLATE_POOL = os.environ.get("PROXMOX_TEMPLATE_POOL", "pond-templates")
+
+    # What the token may be granted beyond the pools and the session zone. These
+    # must match pond_template_bridges / pond_storages in
+    # playbooks/pond_least_privilege.yml: the privilege self-check refuses a
+    # token holding SDN.Use on any other local bridge (that would let a clone be
+    # put back on the lab LAN) or space on any other storage.
+    # Comma lists. Bridges default to none (template NICs on a VNet in the zone).
+    PROXMOX_TEMPLATE_BRIDGES = os.environ.get("PROXMOX_TEMPLATE_BRIDGES", "")
+    PROXMOX_TEMPLATE_STORAGES = os.environ.get("PROXMOX_TEMPLATE_STORAGES", "local-lvm")
+
+    # VMs that belong to other projects on the same cluster. The app never
+    # clones, starts or deletes these, whatever the token could technically do.
+    PROXMOX_PROTECTED_VMIDS = os.environ.get("PROXMOX_PROTECTED_VMIDS", "300-303")
+
+    # Seconds a passed privilege self-check is trusted, per worker. 0 = check on
+    # every launch.
+    PROXMOX_PRIVILEGE_CHECK_TTL = _int("PROXMOX_PRIVILEGE_CHECK_TTL", 300)
     PROXMOX_CLONE_POOL_START = _int("PROXMOX_CLONE_POOL_START", 9000)
+
+    # SDN zone the session VNets live in. Must be a Simple zone, and must be the
+    # same zone provisioner.create_session_vnet() uses, or the token's SDN
+    # grants will not cover it.
+    PROXMOX_SDN_ZONE = os.environ.get("PROXMOX_SDN_ZONE", "pondz")
+    # Seconds to wait for a clone, stop or delete task before giving up.
+    PROXMOX_TASK_TIMEOUT = _int("PROXMOX_TASK_TIMEOUT", 300)

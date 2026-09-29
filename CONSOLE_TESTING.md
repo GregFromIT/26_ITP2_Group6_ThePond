@@ -20,8 +20,7 @@ export THEPOND_PROXMOX_TOKEN_SECRET=<real proxmox api token secret>
 ```
 
 Required — `provisioner.get_client()` raises immediately without it.
-Node/host/user/token-id come from `group_vars/all.yml` (currently
-`10.1.21.151`, `root@pam`, token id `root`).
+Node/host/user/token-id come from `group_vars/all.yml` (now `10.1.21.151`, `pond@pve`, token id `launcher`; historically `root@pam` with token id `root`, which is being revoked, see pond-sec/docs/README.md 'Least-privilege Proxmox token').
 
 Optional — override the sqlite path (defaults to `db/thepond.db`):
 
