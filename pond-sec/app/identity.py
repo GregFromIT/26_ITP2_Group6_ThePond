@@ -34,6 +34,8 @@ def _row_from_user(user: User) -> dict:
         "role_set_by": None,
         "created_at": user.created_at,
         "last_login_at": user.last_login_at,
+        "approval_status": user.approval_status,
+        "approved_at": user.approved_at,
     }
 
 

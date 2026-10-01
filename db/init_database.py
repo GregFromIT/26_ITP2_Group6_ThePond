@@ -7,6 +7,7 @@ Usage:
 
     python -m db.init_database
 """
+import sys
 import hashlib
 import yaml
 from pathlib import Path
@@ -22,6 +23,9 @@ from db.runtime_models import ChallengeInstance, VMInstance, InstanceJob
 from db.scoring_models import FlagSubmission, UserSolve
 from db.audit_models import AuditLog
 from db.throttle_models import ThrottleEvent
+
+from sqlalchemy import inspect
+from app.uploads import VMUpload 
 
 CHALLENGES_DIR = Path(__file__).parent.parent / "vars" / "challenges"
 

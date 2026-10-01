@@ -100,6 +100,17 @@ class User(db.Model):
         nullable=True
     )
 
+    approval_status: Mapped[str] = mapped_column(
+        String(20),
+        nullable=False,
+        default="pending"
+    )
+
+    approved_by: Mapped[Optional[int]] = mapped_column(
+        ForeignKey("users.user_id"),
+        nullable=True
+    )
+
     role: Mapped["Role"] = relationship(
         back_populates="users"
     )

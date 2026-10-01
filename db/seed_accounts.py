@@ -90,7 +90,7 @@ def seed_accounts(accounts, check_only=False):
 
         try:
             user = User(username=username, display_name=display_name,
-                        role=roles[role_name], is_active=True)
+                        role=roles[role_name], is_active=True, approval_status="approved")
             db.session.add(user)
             db.session.flush()
             temporary = issue_temporary_password(user.user_id)
