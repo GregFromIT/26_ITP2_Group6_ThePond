@@ -1,0 +1,5 @@
+{% extends "base.html" %}
+{% block title %}Submission needs attention · Pond Sec{% endblock %}
+{% block content %}<section class="form-page"><div class="form-card"><h1>Submission needs attention</h1>
+<p>{{ message }}</p><a class="btn btn-outline" href="{{ url_for('uploads.index') }}">Back to submissions</a>
+</div></section>{% endblock %}

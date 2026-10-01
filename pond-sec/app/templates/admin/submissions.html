@@ -1,0 +1,11 @@
+{% extends "base.html" %}
+{% block title %}Challenge submissions · Pond Sec{% endblock %}
+{% block content %}
+<header class="page-head"><p class="eyebrow">Staff</p><h1>Challenge submissions</h1>
+<p class="lede">Upload, check and correct challenges before they reach students.</p>
+<a class="btn btn-solid" href="{{ url_for('uploads.new') }}">New submission</a></header>
+<section class="board"><table class="grid"><thead><tr><th>Challenge</th><th>Status</th><th>Created</th></tr></thead><tbody>
+{% for row in submissions %}<tr><td><a href="{{ url_for('uploads.detail', submission_id=row.submission_id) }}">{{ row.title }}</a></td><td>{{ row.status|replace('_', ' ') }}</td><td>{{ row.created_at|stamp }}</td></tr>
+{% else %}<tr><td colspan="3">No submissions yet.</td></tr>{% endfor %}</tbody></table>
+{% if submissions|length == 50 %}<a href="{{ url_for('uploads.index', before=submissions[-1].submission_id) }}">Older submissions</a>{% endif %}</section>
+{% endblock %}

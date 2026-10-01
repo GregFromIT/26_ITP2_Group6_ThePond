@@ -1,20 +1,29 @@
+"""Initialise The Pond's tables and default roles using the web app configuration.
+
+Run from the repository root with the web
+server's virtual environment and environment settings:
+
+    python3 -m db.init_database --check
+    python3 -m db.init_database
+
+Optional challenge seeding (requires configured Proxmox access):
+
+    python3 -m db.init_database --seed-challenges
+
+Existing tables and roles are preserved. This is not a schema migration:
+missing columns on existing tables are reported, not repaired. Accounts are
+created separately with python3 -m db.seed_accounts.
 """
-db/init_database.py
 
-Creates and initialises the SQLAlchemy database for The Pond.
-
-Usage:
-
-    python -m db.init_database
-"""
+import argparse
 import hashlib
-import yaml
+import sys
 from pathlib import Path
-from db.throttle_models import ThrottleEvent
-from db.database_app import app
-from db.orm import db
 
-# Import every model so SQLAlchemy knows about every table.
+REPO_ROOT = Path(__file__).resolve().parents[1]
+sys.path.insert(0, str(REPO_ROOT / "pond-sec"))
+
+from db.orm import db
 from db.user_models import Role, User, UserCredential
 from db.challenge_models import Challenge, NetworkRule
 from db.VMs_models import VMTemplate, ChallengeFlag
@@ -22,6 +31,13 @@ from db.runtime_models import ChallengeInstance, VMInstance, InstanceJob
 from db.scoring_models import FlagSubmission, UserSolve
 from db.audit_models import AuditLog
 from db.throttle_models import ThrottleEvent
+from sqlalchemy import inspect, CheckConstraint, UniqueConstraint
+from sqlalchemy.exc import SQLAlchemyError
+from db.submission_models import ChallengeSubmission
+from db.submission_file_models import SubmissionFile
+from db.submission_job_models import SubmissionJob
+from db.submission_issue_models import SubmissionIssue
+from db.notification_models import NotificationOutbox
 
 CHALLENGES_DIR = Path(__file__).parent.parent / "vars" / "challenges"
 
@@ -30,6 +46,7 @@ def _hash_flag(flag: str) -> str:
 
 def seed_challenges_from_yaml():
        import provisioner
+       import yaml
 
        if not CHALLENGES_DIR.exists():
            print(f"no challenges dir at {CHALLENGES_DIR}, skipping challenge seeding.")
@@ -125,65 +142,161 @@ def seed_challenges_from_yaml():
 
 
 
-def initialise_database():
-    with app.app_context():
+DEFAULT_ROLES = [
+    ("user", 1, "Standard user"),
+    ("manager", 2, "User with demo mode and password reset permissions"),
+    ("sysadmin", 3, "Full system administrator"),
+]
 
-        print("Creating The Pond database tables...")
 
+UPLOAD_TABLES = {"challenge_submissions", "submission_files", "submission_jobs", "submission_issues", "notification_outbox"}
+
+
+def check_schema(engine, allow_missing_tables=False):
+    """Check table/column presence and upload-table keys, checks and indexes.
+
+    This is not a complete migration diff: column types/defaults/nullability
+    and legacy constraints are not compared. Equivalent check expressions with
+    different formatting can require review rather than automatic repair.
+    """
+    inspector = inspect(engine)
+    existing = set(inspector.get_table_names())
+    problems = []
+    for table in db.metadatas["pond"].sorted_tables:
+        if table.name not in existing:
+            if not allow_missing_tables:
+                problems.append(f"Missing table: {table.name}")
+            continue
+        columns = {column["name"] for column in inspector.get_columns(table.name)}
+        for name in sorted(set(table.columns.keys()) - columns):
+            problems.append(f"Missing column: {table.name}.{name}")
+        if table.name not in UPLOAD_TABLES:
+            continue
+        actual_fks = {
+            (tuple(fk["constrained_columns"]), fk["referred_table"], tuple(fk["referred_columns"]),
+             fk["options"].get("ondelete", "NO ACTION").upper())
+            for fk in inspector.get_foreign_keys(table.name)
+        }
+        for fk in table.foreign_key_constraints:
+            expected = (tuple(e.parent.name for e in fk.elements), fk.referred_table.name,
+                        tuple(e.column.name for e in fk.elements), (fk.ondelete or "NO ACTION").upper())
+            if expected not in actual_fks:
+                problems.append(f"Missing/mismatched foreign key: {table.name}.{','.join(expected[0])}")
+        actual_unique = {tuple(c["column_names"]) for c in inspector.get_unique_constraints(table.name)}
+        for constraint in table.constraints:
+            if isinstance(constraint, UniqueConstraint) and tuple(c.name for c in constraint.columns) not in actual_unique:
+                problems.append(f"Missing unique constraint: {table.name}.{','.join(c.name for c in constraint.columns)}")
+        normalize = lambda value: " ".join(str(value).split())
+        actual_checks = {normalize(c["sqltext"]) for c in inspector.get_check_constraints(table.name)}
+        for constraint in table.constraints:
+            if isinstance(constraint, CheckConstraint) and normalize(constraint.sqltext) not in actual_checks:
+                problems.append(f"Missing/mismatched check constraint: {table.name}.{constraint.name}")
+        actual_indexes = {idx["name"]: idx for idx in inspector.get_indexes(table.name)}
+        for idx in table.indexes:
+            actual = actual_indexes.get(idx.name)
+            expected_where = idx.dialect_options["sqlite"].get("where")
+            if (actual is None or bool(actual["unique"]) != bool(idx.unique)
+                    or actual["column_names"] != [c.name for c in idx.columns]
+                    or normalize(actual.get("dialect_options", {}).get("sqlite_where")) != normalize(expected_where)):
+                problems.append(f"Missing/mismatched index: {table.name}.{idx.name}")
+    return problems
+
+
+def initialise_database(check_only=False, seed_challenges=False):
+    """Run inside the web app's application context."""
+    if check_only and seed_challenges:
+        raise ValueError("--check and --seed-challenges cannot be combined.")
+    engine = db.engines["pond"]
+    if engine.dialect.name != "sqlite":
+        raise RuntimeError("The submission schema currently supports SQLite only.")
+    print(f"Database: {engine.url.render_as_string(hide_password=True)}", flush=True)
+    if check_only and engine.dialect.name == "sqlite":
+        filename = engine.url.database
+        if filename and filename != ":memory:" and not Path(filename).is_file():
+            raise RuntimeError("Database file does not exist. Run without --check to initialise it.")
+
+    problems = check_schema(engine, allow_missing_tables=not check_only)
+    if problems:
+        raise RuntimeError("\n".join(problems) + "\nSchema repair requires a reviewed migration; no tables were changed.")
+
+    # Reject conflicting role definitions before making schema changes.
+    if "roles" in inspect(engine).get_table_names():
+        roles = list(db.session.execute(db.select(Role)).scalars())
+        for name, level, _ in DEFAULT_ROLES:
+            for role in roles:
+                if (role.role_name == name and role.role_level != level) or (role.role_level == level and role.role_name != name):
+                    raise RuntimeError(f"Conflicting role definition: {role.role_name}. Review before continuing.")
+
+    if not check_only:
+        print("Creating missing database tables...")
         db.create_all(bind_key="pond")
 
-        print("Database tables created.")
+    problems = check_schema(engine)
+    if problems:
+        raise RuntimeError("\n".join(problems) +
+                           "\nInitialisation adds missing tables but cannot migrate existing tables.")
+    print("Verified registered table/column presence and upload table keys, checks and indexes.")
 
-        # Seed the three system roles if they do not already exist.
-        role_names = {
-            role.role_name
-            for role in db.session.execute(
-                db.select(Role)
-            ).scalars().all()
-        }
+    existing_roles = {
+        role.role_name: role
+        for role in db.session.execute(db.select(Role)).scalars()
+    }
+    for name, level, description in DEFAULT_ROLES:
+        if name in existing_roles and existing_roles[name].role_level != level:
+            raise RuntimeError(f"Role {name} has an unexpected level; review it before continuing.")
+        for role in existing_roles.values():
+            if role.role_level == level and role.role_name != name:
+                raise RuntimeError(f"Role level {level} is already assigned to {role.role_name}.")
 
-        default_roles = [
-            (
-                "user",
-                1,
-                "Standard user"
-            ),
-            (
-                "manager",
-                2,
-                "User with demo mode and password reset permissions"
-            ),
-            (
-                "sysadmin",
-                3,
-                "Full system administrator"
-            ),
-        ]
+    missing = [spec for spec in DEFAULT_ROLES if spec[0] not in existing_roles]
+    if check_only:
+        if missing:
+            raise RuntimeError("Missing roles: " + ", ".join(spec[0] for spec in missing))
+        print("Check complete. All three default roles exist. No accounts or roles changed.")
+        return
 
-        roles_added = False
+    try:
+        for name, level, description in missing:
+            db.session.add(Role(role_name=name, role_level=level, description=description))
+        db.session.commit()
+    except Exception:
+        db.session.rollback()
+        raise
+    print(f"Default roles ready: user, manager, sysadmin ({len(missing)} added).")
+    print("Database tables and roles initialised successfully.")
 
-        for role_name, role_level, description in default_roles:
-            if role_name not in role_names:
-                db.session.add(
-                    Role(
-                        role_name=role_name,
-                        role_level=role_level,
-                        description=description
-                    )
-                )
+    if seed_challenges:
+        print("Seeding challenges using Proxmox. This step may commit partial progress.")
+        try:
+            seed_challenges_from_yaml()
+        except Exception:
+            db.session.rollback()
+            print("Challenge seeding failed; tables and roles remain initialised.", file=sys.stderr)
+            raise
+    print("Next: python3 -m db.seed_accounts --check")
 
-                roles_added = True
 
-        if roles_added:
-            db.session.commit()
-            print("Default roles created.")
-        else:
-            print("Default roles already exist.")
+def create_app():
+    from app import create_app as web_create_app
+    return web_create_app()
 
-        print("Seeding challenges from vars/challenges/*.yml...")
-        seed_challenges_from_yaml()
-        
-        print("The Pond database initialisation complete.")
+
+def main(argv=None):
+    parser = argparse.ArgumentParser(description=__doc__,
+                                     formatter_class=argparse.RawDescriptionHelpFormatter)
+    mode = parser.add_mutually_exclusive_group()
+    mode.add_argument("--check", action="store_true",
+                      help="Check tables, column names and roles without initialising them.")
+    mode.add_argument("--seed-challenges", action="store_true",
+                      help="Also run the existing YAML challenge seeder; requires Proxmox access.")
+    args = parser.parse_args(argv)
+    try:
+        app = create_app()
+        with app.app_context():
+            initialise_database(check_only=args.check, seed_challenges=args.seed_challenges)
+    except (RuntimeError, ValueError, SQLAlchemyError) as error:
+        parser.exit(1, f"Error: {error}\n")
+
 
 if __name__ == "__main__":
-    initialise_database()
+    main()

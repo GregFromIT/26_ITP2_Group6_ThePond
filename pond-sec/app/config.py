@@ -58,9 +58,18 @@ class Config:
     PERMANENT_SESSION_LIFETIME = _int("SESSION_LIFETIME_MINUTES", 720) * 60
     IDLE_TIMEOUT_MINUTES = _int("IDLE_TIMEOUT_MINUTES", 60)
 
-    # Nothing here accepts an upload. Anything large is either a mistake or an
-    # attempt to tie up a worker.
+    # Ordinary pages remain small. Dedicated challenge-intake routes apply
+    # separate bounded limits before request parsing.
     MAX_CONTENT_LENGTH = _int("MAX_CONTENT_BYTES", 64 * 1024)
+    # Only dedicated intake endpoints override the normal small request limit.
+    UPLOAD_QUARANTINE_ROOT = os.environ.get("UPLOAD_QUARANTINE_ROOT")
+    UPLOAD_MAX_IMAGE_BYTES = _int("UPLOAD_MAX_IMAGE_BYTES", 20 * 1024**3)
+    UPLOAD_USER_QUOTA_BYTES = _int("UPLOAD_USER_QUOTA_BYTES", 80 * 1024**3)
+    UPLOAD_TOTAL_QUOTA_BYTES = _int("UPLOAD_TOTAL_QUOTA_BYTES", 200 * 1024**3)
+    # Trusted deployment callbacks, supplied by POND_SETTINGS Python config.
+    INGESTION_VERIFY_TEMPLATE = None
+    INGESTION_INSPECT_IMAGE = None
+    INGESTION_PUBLICATION_ADAPTER = None
     MAX_FIELD_LENGTH = _int("MAX_FIELD_LENGTH", 200)
 
     FORCE_HTTPS = _bool("FORCE_HTTPS", IS_PRODUCTION)

@@ -11,3 +11,4 @@ websocket-client>=1.7
 # does the right thing on either platform without editing this file.
 gunicorn>=21.2; sys_platform != "win32"
 waitress>=3.0; sys_platform == "win32"
+jsonschema>=4.26

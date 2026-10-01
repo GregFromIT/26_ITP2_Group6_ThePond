@@ -1,0 +1,3 @@
+# Install alongside the existing application requirements.
+# Pinned to the version used to verify the v1 package schemas.
+jsonschema==4.26.0

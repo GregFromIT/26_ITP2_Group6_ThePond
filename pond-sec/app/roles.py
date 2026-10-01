@@ -60,6 +60,8 @@ DESCRIPTIONS = {
 
 # The whole access policy. Everything else in the codebase asks this.
 PERMISSIONS = {
+    "upload_challenges": {MODERATOR, ADMIN},
+    "review_challenges": {ADMIN},
     # --- moderator and above -------------------------------------------
     "view_admin_console": {MODERATOR, ADMIN},
     "view_users": {MODERATOR, ADMIN},

@@ -25,6 +25,7 @@
     {% if current_user %}
       <a href="{{ url_for('dashboard.index') }}">Dashboard</a>
       <a href="{{ url_for('themes.index') }}">Themes</a>
+      <a href="{{ url_for('uploads.inbox') }}">Notifications</a>
       {% if can('view_admin_console') %}
         <a href="{{ url_for('admin.console') }}">Staff</a>
       {% endif %}

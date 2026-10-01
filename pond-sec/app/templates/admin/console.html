@@ -65,6 +65,9 @@
   <article class="board-small">
     <header class="board-head"><h3>Quick links</h3>
       <p class="hint">Where the work happens.</p></header>
+    {% if can('upload_challenges') %}
+    <a class="btn btn-outline btn-block" href="{{ url_for('uploads.index') }}">Challenge submissions</a>
+    {% endif %}
     <a class="btn btn-outline btn-block" href="{{ url_for('admin.users') }}">All accounts</a>
     <a class="btn btn-outline btn-block" href="{{ url_for('admin.audit_log') }}">Audit log</a>
     {% if can('change_roles') %}

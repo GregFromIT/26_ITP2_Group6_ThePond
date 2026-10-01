@@ -1,0 +1,82 @@
+{% extends "base.html" %}
+{% block title %}{{ submission.title }} · Pond Sec{% endblock %}
+{% block content %}
+<header class="page-head"><a href="{{ url_for('uploads.index') }}">All submissions</a><h1>{{ submission.title }}</h1>
+<p>Status: <strong>{{ submission.status|replace('_', ' ') }}</strong></p>
+{% if submission.supersedes_submission_id %}<p>Correction of submission #{{ submission.supersedes_submission_id }}. Earlier records are retained.</p>{% endif %}
+{% if submission.status == 'validating' %}<p>Validation is queued or running. Refresh this page to check progress.</p>{% endif %}
+{% if submission.status == 'ready_for_review' %}<p>Validation passed. Administrator review and publication are still required.</p>{% endif %}
+</header>
+<section class="board"><h2>Challenge overview</h2>
+<p>{{ submission.manifest_json.description }}</p>
+<p>Category: {{ submission.manifest_json.category }} · Difficulty: {{ submission.manifest_json.difficulty }}</p>
+<h3>Student instructions</h3>{% for line in submission.manifest_json.instructions.splitlines() %}<p>{{ line }}</p>{% endfor %}
+<h3>Virtual machines</h3><table class="grid"><thead><tr><th>Machine</th><th>Source</th><th>Resources</th></tr></thead><tbody>
+{% for vm in submission.manifest_json.vms %}<tr><td>{{ vm.name }} ({{ vm.role }})</td>
+<td>{% if vm.source.kind == 'image' %}{{ vm.source.path }}{% else %}Approved template: {{ vm.source.reference }}{% endif %}</td>
+<td>{{ vm.cpu_cores }} cores · {{ vm.memory_mb }} MB memory · {{ vm.disk_gb }} GB disk</td></tr>{% endfor %}</tbody></table>
+<h3>Requested connections</h3>{% for rule in submission.manifest_json.network_rules %}<p>{{ rule.from_role }} → {{ rule.to_role }} · {{ rule.protocol }} / {{ rule.port }}</p>{% else %}<p>No inter-VM connections requested.</p>{% endfor %}
+<h3>Scoring</h3>{% for flag in submission.manifest_json.flags %}<p>{{ flag.name }} · {{ flag.vm_role }} · {{ flag.points }} points</p>{% else %}<p>Unscored exercise.</p>{% endfor %}</section>
+{% if submission.status == 'approved' %}<section class="board"><h2>Approved</h2><p>Administrator #{{ submission.approved_by_user_id }} approved this revision on {{ submission.approved_at|stamp }}. Publication is still pending.</p></section>{% endif %}
+{% if can('review_challenges') and submission.status in ['ready_for_review', 'needs_changes', 'validation_failed'] and review_job %}
+<section class="board"><h2>Administrator review</h2><p>Review the challenge details, files and latest validation findings before deciding. Approval does not publish the challenge.</p>
+<form method="post" action="{{ url_for('uploads.review', submission_id=submission.submission_id) }}">
+<input type="hidden" name="_csrf" value="{{ csrf_token() }}"><input type="hidden" name="content_digest" value="{{ submission.content_digest }}"><input type="hidden" name="job_id" value="{{ review_job.job_id }}">
+<label for="review-note">Review note (required for rejection)</label><textarea id="review-note" name="note" maxlength="2000" rows="4"></textarea>
+{% if submission.status == 'ready_for_review' %}<button class="btn btn-solid" name="decision" value="approve" type="submit">Approve revision</button>{% endif %}
+<button class="btn btn-outline" name="decision" value="reject" type="submit">Reject with note</button></form></section>{% endif %}
+{% if reviews %}<section class="board"><h2>Review history</h2>{% for review in reviews %}<article><h3>{{ review.details_json.decision|capitalize }}</h3>
+<p>Administrator #{{ review.actor_user_id }} · {{ review.created_at|stamp }}</p>{% for line in (review.details_json.note or 'No additional note.').splitlines() %}<p>{{ line }}</p>{% endfor %}</article>{% endfor %}</section>{% endif %}
+{% if can('review_challenges') %}
+{% if submission.status in ['approved', 'import_failed'] %}<section class="board"><h2>Publish challenge</h2>
+{% if publication_configured %}<form method="post" action="{{ url_for('uploads.publish', submission_id=submission.submission_id) }}">
+<input type="hidden" name="_csrf" value="{{ csrf_token() }}"><input type="hidden" name="content_digest" value="{{ submission.content_digest }}">
+{% if submission.status == 'import_failed' %}<input type="hidden" name="retry" value="yes">
+<label><input type="checkbox" name="reconciled" value="yes" required> I have stopped the previous worker and reconciled its resources and pending tasks.</label>{% endif %}
+<button class="btn btn-solid" type="submit">{{ 'Retry publication' if submission.status == 'import_failed' else 'Publish approved revision' }}</button></form>
+{% else %}<p>Publication is disabled until the deployment adapter is configured.</p>{% endif %}</section>{% endif %}
+{% if submission.status == 'import_failed' %}<section class="board"><h2>Return for correction</h2>
+<p>Use this when the package needs changing rather than retrying the same import. Recovery records remain available.</p>
+<form method="post" action="{{ url_for('uploads.return_for_correction', submission_id=submission.submission_id) }}">
+<input type="hidden" name="_csrf" value="{{ csrf_token() }}"><input type="hidden" name="content_digest" value="{{ submission.content_digest }}">
+<label>Correction note <textarea name="note" required maxlength="2000" rows="3"></textarea></label>
+<label><input type="checkbox" name="reconciled" value="yes" required> I have stopped the previous worker and reconciled its resources and pending tasks.</label>
+<button class="btn btn-outline" type="submit">Return for correction</button></form></section>{% endif %}
+{% for job in jobs if job.action == 'publish' %}<section class="board"><h2>Publication recovery record</h2>
+{% if job.error_code %}<p>{{ job.error_code }}: {{ job.error_message }}</p>{% endif %}
+{% for resource in job.resource_inventory_json %}<p>{{ resource.role }} · {{ resource.node }} · VM {{ resource.vmid }} · {{ resource.state }}{% if resource.task_id %} · Task {{ resource.task_id }}{% endif %}</p>{% endfor %}</section>{% endfor %}
+{% endif %}
+{% if submission.status == 'importing' %}<p>Publication is queued or running. Refresh to check progress.</p>{% endif %}
+{% if submission.status == 'published' %}<p>Published as challenge #{{ submission.published_challenge_id }}.</p>{% endif %}
+<section class="board"><h2>Files</h2>
+{% for item in required %}<article><h3>{{ item.logical_path }}</h3>
+{% if item.logical_path in present %}<p>Uploaded</p>
+{% elif submission.status == 'draft' %}
+<form class="image-upload" data-upload-url="{{ url_for('uploads.upload_file', submission_id=submission.submission_id, path=item.logical_path) }}" data-token="{{ csrf_token() }}" data-limit="{{ upload_limit }}">
+<label>VM image <input type="file" accept=".qcow2" required></label>
+<button class="btn btn-outline" type="submit">Upload image</button>
+<progress max="100" value="0" aria-label="Upload progress"></progress><p role="status" class="upload-status"></p></form>
+{% else %}<p>Missing</p>{% endif %}</article>
+{% else %}<p>This definition uses approved templates; no VM images are required.</p>{% endfor %}
+{% for file in files %}<p>{{ file.logical_path }} — {{ file.size_bytes }} bytes — {{ file.validation_status|replace('_', ' ') }}</p>
+{% if submission.status == 'draft' %}<form method="post" action="{{ url_for('uploads.remove_file', submission_id=submission.submission_id, file_id=file.file_id) }}">
+<input type="hidden" name="_csrf" value="{{ csrf_token() }}"><button class="btn btn-quiet" type="submit">Remove {{ file.original_filename }}</button></form>{% endif %}{% endfor %}
+</section>
+{% if submission.status == 'draft' %}<section class="board"><h2>Finish your draft</h2>
+<form method="post" enctype="multipart/form-data" action="{{ url_for('uploads.edit_manifest', submission_id=submission.submission_id) }}">
+<input type="hidden" name="_csrf" value="{{ csrf_token() }}"><label>Replace challenge definition <input type="file" name="manifest" accept=".json,application/json" required></label>
+<button class="btn btn-outline" type="submit">Update definition</button></form>
+<p>Submitting freezes this revision. Missing files will be reported by validation.</p>
+<form method="post" action="{{ url_for('uploads.submit', submission_id=submission.submission_id) }}">
+<input type="hidden" name="_csrf" value="{{ csrf_token() }}"><button class="btn btn-solid" type="submit">Submit for validation</button></form></section>
+{% elif submission.status in ['needs_changes', 'validation_failed', 'rejected'] %}<section class="board"><h2>Make a correction</h2>
+<p>Create an editable copy, retaining existing files and the original findings.</p>
+<form method="post" action="{{ url_for('uploads.revise', submission_id=submission.submission_id) }}">
+<input type="hidden" name="_csrf" value="{{ csrf_token() }}"><button class="btn btn-solid" type="submit">Create correction</button></form></section>{% endif %}
+<section class="board"><h2>Validation findings</h2>
+{% for issue in issues %}<article><h3>{{ issue.error_code|replace('_', ' ') }}</h3><p>{{ issue.message }}</p>
+{% if issue.field_path %}<p>{{ issue.field_path }}</p>{% endif %}<p>Run #{{ issue.job_id }} · {{ issue.severity }}{% if issue.resolved_at %} · Resolved{% endif %}</p></article>
+{% else %}<p>No findings recorded yet. This does not mean validation has passed.</p>{% endfor %}</section>
+<section class="board"><h2>Recent processing runs</h2>{% for job in jobs %}<p>#{{ job.job_id }} · {{ job.action }} · {{ job.status|replace('_', ' ') }} · Attempt {{ job.attempt_count }}</p>{% else %}<p>No runs queued.</p>{% endfor %}</section>
+{% endblock %}
+{% block scripts %}<script src="{{ url_for('static', filename='js/uploads.js') }}" defer></script>{% endblock %}
