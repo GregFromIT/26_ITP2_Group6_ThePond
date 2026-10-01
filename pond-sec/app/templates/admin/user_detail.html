@@ -21,6 +21,7 @@
     <h2>Account</h2>
     <dl class="kv">
       <div><dt>Role</dt><dd class="mono">{{ target['role'] }}</dd></div>
+      <div><dt>Approval</dt><dd class="mono">{{ target['approval_status'] }}{% if target['approved_at'] %} · {{ target['approved_at']|stamp }}{% endif %}</dd></div>
       <div><dt>Score</dt><dd class="mono">{{ target['points'] }}</dd></div>
       <div><dt>Last sign-in</dt><dd class="mono">{{ target['last_login_at']|stamp }}</dd></div>
       <div><dt>Failed attempts</dt><dd class="mono">{{ target['failed_attempts'] }}</dd></div>

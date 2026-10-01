@@ -31,7 +31,8 @@ def env(tmp_path, monkeypatch):
         initialise_database()
         roles = {r.role_name: r.role_id for r in db.session.scalars(select(Role))}
         for i, role in [(1, "manager"), (2, "manager"), (3, "sysadmin"), (4, "user")]:
-            db.session.add(User(user_id=i, role_id=roles[role], username=f"user{i}", display_name="Test"))
+            db.session.add(User(user_id=i, role_id=roles[role], username=f"user{i}", display_name="Test",
+                                approval_status="approved"))
         db.session.commit()
     manifest = json.loads((Path(__file__).resolve().parents[1] / "examples/challenge_uploads/scored-vm-image.json").read_text())
     yield app, manifest, tmp_path

@@ -27,7 +27,7 @@
         <td class="soft">{{ row['uni_year'] }}</td>
         <td><span class="status status-role-{{ row['role'] }}">{{ role_labels[row['role']] }}</span></td>
         <td class="mono num">{{ row['points'] }}</td>
-        <td>{% if row['locked_until'] %}<span class="status status-abandoned">locked</span>{% else %}<span class="soft">active</span>{% endif %}</td>
+        <td>{% if row['locked_until'] %}<span class="status status-abandoned">locked</span>{% elif row['approval_status'] != 'approved' %}<span class="status status-abandoned">{{ row['approval_status'] }}</span>{% else %}<span class="soft">active</span>{% endif %}</td>
       </tr>
       {% else %}
       <tr><td colspan="6" class="empty">No accounts match that search.</td></tr>

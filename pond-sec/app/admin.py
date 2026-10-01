@@ -12,7 +12,11 @@ promoted from the command line by whoever controls the server:
 
     flask --app wsgi set-role gthomas admin
 
-After that, admins promote each other through the web console.
+The CLI also approves the account if it is still pending: a pending admin
+could never approve anyone, including themselves.
+
+After that, admins promote each other through the web console, and approve or
+reject new registrations from /admin/approvals.
 
 WHAT IS DELIBERATELY NOT HERE
 -----------------------------
@@ -26,6 +30,8 @@ import click
 from flask import Blueprint, abort, flash, g, redirect, render_template, request, url_for
 
 from datetime import datetime, timedelta
+
+from sqlalchemy.orm import aliased
 
 from db.orm import db
 from db.challenge_models import Challenge
@@ -72,6 +78,7 @@ def console():
             "moderators": db.session.query(User).join(Role).filter(Role.role_name == "manager").count(),
             "admins": db.session.query(User).join(Role).filter(Role.role_name == "sysadmin").count(),
             "locked": db.session.query(UserCredential).filter(UserCredential.locked_until.isnot(None)).count(),
+            "pending": db.session.query(User).filter(User.approval_status == "pending").count(),
             "live_sessions": db.session.query(ChallengeInstance).filter_by(status="running").count(),
             "live_vms": db.session.query(VMInstance).filter(
                 VMInstance.status == "running", VMInstance.deleted_at.is_(None)
@@ -134,6 +141,87 @@ def users():
     rows_orm = q.order_by(Role.role_level.desc(), User.username).limit(200).all()
     rows = [get_user_row(u.user_id) for u in rows_orm]
     return render_template("admin/users.html", users=rows, search=search)
+
+
+# -------------------------------------------------------------- approvals
+
+@bp.route("/approvals")
+@require("approve_accounts")
+def approvals():
+    """Registrations waiting on a decision, oldest first.
+
+    Oldest first on purpose: somebody who registered on Monday should not be
+    stuck behind Friday's intake.
+    """
+    waiting_orm = (
+        db.session.query(User)
+        .filter(User.approval_status == "pending")
+        .order_by(User.created_at)
+        .all()
+    )
+    waiting = [get_user_row(u.user_id) for u in waiting_orm]
+
+    approver = aliased(User)
+    recent_rows = (
+        db.session.query(User, approver.username)
+        .outerjoin(approver, User.approved_by == approver.user_id)
+        .filter(User.approval_status != "pending", User.approved_at.isnot(None))
+        .order_by(User.approved_at.desc())
+        .limit(10).all()
+    )
+    recent = [
+        {
+            "user_id": u.user_id, "username": u.username, "approval_status": u.approval_status,
+            "approved_at": u.approved_at, "decided_by": decided_by,
+        }
+        for u, decided_by in recent_rows
+    ]
+    return render_template("admin/approvals.html", waiting=waiting, recent=recent)
+
+
+@bp.route("/users/<int:user_id>/approve", methods=("POST",))
+@require("approve_accounts")
+def approve(user_id):
+    target = _target(user_id)
+    if target["approval_status"] == "approved":
+        flash(f"{target['username']} is already approved.", "info")
+        return redirect(url_for("admin.approvals"))
+
+    user = db.session.get(User, user_id)
+    user.approval_status = "approved"
+    user.approved_at = datetime.utcnow()
+    user.approved_by = g.user["user_id"]
+    db.session.commit()
+    audit.record(audit.ACCOUNT_APPROVED, user_id=user_id, username=target["username"],
+                 detail=f"by {g.user['username']}")
+    flash(f"{target['username']} can now use the platform.", "success")
+    return redirect(url_for("admin.approvals"))
+
+
+@bp.route("/users/<int:user_id>/reject", methods=("POST",))
+@require("approve_accounts")
+def reject(user_id):
+    """Refuse a registration.
+
+    The row is kept rather than deleted, so the username stays reserved and the
+    decision stays in the audit trail. A rejected account can be approved later
+    if it turns out to have been a mistake.
+    """
+    target = _target(user_id)
+    if target["role"] != roles.STUDENT:
+        # Rejecting an account that already holds staff powers would be a quiet
+        # way to disable a colleague. Use the role controls for that.
+        abort(403)
+
+    user = db.session.get(User, user_id)
+    user.approval_status = "rejected"
+    user.approved_at = datetime.utcnow()
+    user.approved_by = g.user["user_id"]
+    db.session.commit()
+    audit.record(audit.ACCOUNT_REJECTED, user_id=user_id, username=target["username"],
+                 detail=f"by {g.user['username']}")
+    flash(f"{target['username']} was not approved.", "info")
+    return redirect(url_for("admin.approvals"))
 
 
 @bp.route("/users/<int:user_id>")
@@ -391,10 +479,20 @@ def set_role_command(username, role):
         db.select(Role).filter_by(role_name=ROLE_NAME_TO_DB[role])
     ).scalar_one()
     user.role_id = db_role.role_id
+    newly_approved = user.approval_status != "approved"
+    if newly_approved:
+        # Whoever holds the shell has decided this account belongs here.
+        user.approval_status = "approved"
+        user.approved_at = datetime.utcnow()
+        user.approved_by = None
     db.session.commit()
     audit.record("account.role_changed", user_id=user.user_id, username=username,
                  detail=f"{previous_role} -> {db_role.role_name} via CLI")
     click.echo(f"{username}: {previous_role} -> {db_role.role_name}")
+    if newly_approved:
+        audit.record(audit.ACCOUNT_APPROVED, user_id=user.user_id, username=username,
+                     detail="via CLI")
+        click.echo(f"{username}: approved")
 
 def init_app(app):
     app.cli.add_command(set_role_command)

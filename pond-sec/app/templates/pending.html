@@ -1,0 +1,25 @@
+{% extends "base.html" %}
+{% block title %}Waiting for approval · Pond Sec{% endblock %}
+
+{% block content %}
+<section class="form-page">
+  <div class="form-card">
+    <p class="eyebrow">Account</p>
+    {% if status == 'rejected' %}
+      <h1>This account was not approved</h1>
+      <p class="lede small">An administrator reviewed the registration and did not approve it.
+         If you think that is a mistake, speak to your course staff.</p>
+    {% else %}
+      <h1>Waiting for approval</h1>
+      <p class="lede small">Your account is registered. An administrator has to approve it
+         before you can reach the challenges.</p>
+      <p class="hint">Nothing more to do here. Sign in again later and you will go straight
+         through once it is approved.</p>
+    {% endif %}
+    <form method="post" action="{{ url_for('auth.logout') }}">
+      <input type="hidden" name="_csrf" value="{{ csrf_token() }}">
+      <button class="btn btn-outline btn-lg btn-block" type="submit">Sign out</button>
+    </form>
+  </div>
+</section>
+{% endblock %}

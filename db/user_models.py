@@ -19,7 +19,7 @@ user_credentials
 from datetime import datetime
 from typing import Optional
 
-from sqlalchemy import Boolean, DateTime, ForeignKey, Integer, String
+from sqlalchemy import Boolean, CheckConstraint, DateTime, ForeignKey, Integer, String
 from sqlalchemy.orm import Mapped, mapped_column, relationship
 
 from db.orm import db
@@ -60,6 +60,12 @@ class Role(db.Model):
 class User(db.Model):
     __bind_key__ = "pond"
     __tablename__ = "users"
+    __table_args__ = (
+        CheckConstraint(
+            "approval_status IN ('pending', 'approved', 'rejected')",
+            name="ck_users_approval_status"
+        ),
+    )
 
     user_id: Mapped[int] = mapped_column(
         Integer,
@@ -97,6 +103,28 @@ class User(db.Model):
 
     last_login_at: Mapped[Optional[datetime]] = mapped_column(
         DateTime,
+        nullable=True
+    )
+
+    # New registrations land on 'pending' and can sign in but reach nothing
+    # until an administrator approves them. Rejected accounts keep their row
+    # so the username stays reserved and the decision stays auditable.
+    approval_status: Mapped[str] = mapped_column(
+        String(20),
+        nullable=False,
+        default="pending",
+        server_default="pending",
+        index=True
+    )
+
+    approved_at: Mapped[Optional[datetime]] = mapped_column(
+        DateTime,
+        nullable=True
+    )
+
+    # Only the approver's username is ever shown, so no relationship object.
+    approved_by: Mapped[Optional[int]] = mapped_column(
+        ForeignKey("users.user_id"),
         nullable=True
     )
 

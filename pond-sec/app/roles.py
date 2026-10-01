@@ -7,7 +7,8 @@ Three roles, defined once here and enforced everywhere through can():
                who has locked themselves out, issue a temporary password, and
                kill a session whose VM is stuck. Cannot change anyone's role.
     admin      the system administrator. Everything a moderator can do, plus
-               granting and removing moderator (and admin) access.
+               granting and removing moderator (and admin) access, and
+               approving or rejecting new registrations.
 
 WHY A MATRIX AND NOT `if user.role == "admin"` CHECKS
 -----------------------------------------------------
@@ -55,7 +56,8 @@ LABELS = {
 DESCRIPTIONS = {
     STUDENT: "Takes challenges. No access to other accounts.",
     MODERATOR: "Class staff: can view accounts, unlock students and close stuck sessions.",
-    ADMIN: "Full access, including granting and removing moderator access.",
+    ADMIN: "Full access, including granting and removing moderator access and "
+           "approving new registrations.",
 }
 
 # The whole access policy. Everything else in the codebase asks this.
@@ -73,6 +75,9 @@ PERMISSIONS = {
     "view_audit_log": {MODERATOR, ADMIN},
     # --- admin only ------------------------------------------------------
     "change_roles": {ADMIN},
+    # Approving a registration is effectively deciding who gets onto the
+    # platform at all, so it sits with administrators alongside role changes.
+    "approve_accounts": {ADMIN},
 }
 
 # Deliberately absent: any power to edit scores or delete flag awards. Scores

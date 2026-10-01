@@ -19,6 +19,9 @@
     <div><dt>Moderators</dt><dd class="mono figure-lg">{{ stats['moderators'] }}</dd></div>
     <div><dt>Admins</dt><dd class="mono figure-lg">{{ stats['admins'] }}</dd></div>
     <div><dt>Locked out</dt><dd class="mono figure-lg">{{ stats['locked'] }}</dd></div>
+    {% if can('approve_accounts') %}
+    <div><dt><a href="{{ url_for('admin.approvals') }}">Awaiting approval</a></dt><dd class="mono figure-lg">{{ stats['pending'] }}</dd></div>
+    {% endif %}
   </dl>
 </section>
 

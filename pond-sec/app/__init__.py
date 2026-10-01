@@ -28,9 +28,11 @@ ADDING A BLUEPRINT:
 
 The order of the before_request hooks matters and is not accidental:
 force_https, then csrf.protect (registered by csrf.init_app), then
-auth.load_logged_in_user. A request is redirected to HTTPS before its token is
-read, and its token is checked before any user is loaded. Insert new hooks with
-that ordering in mind.
+auth.load_logged_in_user, then auth.gate_unapproved_accounts, then
+auth.force_password_change. A request is redirected to HTTPS before its token
+is read, its token is checked before any user is loaded, and an unapproved
+account is held on the waiting page before anything else applies. Insert new
+hooks with that ordering in mind.
 """
 
 import os
@@ -93,7 +95,8 @@ def create_app(test_config=None):
 
     app.before_request(force_https)
     app.before_request(auth.load_logged_in_user)
-    app.before_request(auth.force_password_change)   # must run AFTER the loader
+    app.before_request(auth.gate_unapproved_accounts)  # must run AFTER the loader
+    app.before_request(auth.force_password_change)     # and after the gate
     app.after_request(security_headers)
 
     app.register_blueprint(dashboard.bp)

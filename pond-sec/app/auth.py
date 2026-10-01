@@ -1,6 +1,6 @@
 """Registration, login, lockout and password changes.
 
-Routes: /register, /login, /logout, /change-password
+Routes: /register, /login, /logout, /change-password, /pending
 
 WHAT IS NOT HERE ANY MORE
 -------------------------
@@ -87,6 +87,23 @@ def load_logged_in_user():
         flash("This account is locked. Ask your course staff to unlock it.", "error")
 
 
+def gate_unapproved_accounts():
+    """Hold a signed-in account on the waiting page until it is approved.
+
+    Registered as a before_request hook AFTER load_logged_in_user. A pending or
+    rejected account keeps a valid session on purpose: it can reach the waiting
+    page and sign out, and nothing else. That way the person gets a clear answer
+    instead of a login failure they would read as a wrong password.
+    """
+    if g.get("user") is None or g.user["approval_status"] == "approved":
+        return None
+    allowed = {"auth.pending", "auth.logout", "static"}
+    if request.endpoint in allowed:
+        return None
+    flash("That part of the platform opens up once your account is approved.", "info")
+    return redirect(url_for("auth.pending"))
+
+
 def force_password_change():
     """Pin an account with a temporary password to the change-password page.
 
@@ -166,7 +183,11 @@ def register():
         user_id = identity.create_user(form["name"], form["uni_year"], form["username"])
         set_password(user_id, password)
         audit.record(audit.REGISTER, user_id=user_id, username=form["username"])
-        flash("Account created. Sign in to start.", "success")
+        flash(
+            "Account created. An administrator has to approve it before you can "
+            "use the platform; sign in to check on it.",
+            "success",
+        )
         return redirect(url_for("auth.login"))
 
     return render_template("register.html", form=form, uni_years=UNI_YEARS)
@@ -241,6 +262,25 @@ def login():
         session["user_id"] = user["user_id"]
         session.permanent = False
 
+        if user["approval_status"] != "approved":
+            # Say plainly that the password was right and approval is what is
+            # missing. Without this the sign-in just bounces and the person is
+            # left guessing whether they typed their password wrong — which
+            # ends with them retrying into the three-strikes lockout.
+            if user["approval_status"] == "rejected":
+                flash(
+                    "Your password was correct, but this account was not approved. "
+                    "Speak to your course staff.",
+                    "error",
+                )
+            else:
+                flash(
+                    "Your password was correct. This account is still waiting for an "
+                    "administrator to approve it, so there is nothing to do here yet.",
+                    "info",
+                )
+            return redirect(url_for("auth.pending"))
+
         if user["must_change_password"]:
             return redirect(url_for("auth.change_password"))
 
@@ -250,6 +290,15 @@ def login():
         return redirect(url_for("dashboard.index"))
 
     return render_template("login.html", username="")
+
+
+@bp.route("/pending")
+@login_required
+def pending():
+    """Where an account sits between registering and being approved."""
+    if g.user["approval_status"] == "approved":
+        return redirect(url_for("dashboard.index"))
+    return render_template("pending.html", status=g.user["approval_status"])
 
 
 @bp.route("/logout", methods=("POST",))

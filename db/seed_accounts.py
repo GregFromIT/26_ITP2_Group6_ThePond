@@ -13,6 +13,7 @@ This script does not initialise tables or seed challenges/contact Proxmox.
 
 import argparse
 import sys
+from datetime import datetime
 from pathlib import Path
 
 
@@ -89,8 +90,11 @@ def seed_accounts(accounts, check_only=False):
             continue
 
         try:
+            # Bootstrap accounts are approved: a pending seeded admin could
+            # never approve anyone, including themselves.
             user = User(username=username, display_name=display_name,
-                        role=roles[role_name], is_active=True)
+                        role=roles[role_name], is_active=True,
+                        approval_status="approved", approved_at=datetime.utcnow())
             db.session.add(user)
             db.session.flush()
             temporary = issue_temporary_password(user.user_id)
@@ -151,6 +155,7 @@ def debug_accounts(accounts):
         print(f"  display_name = {user.display_name!r}  (ACCOUNTS says {display_name!r})")
         print(f"  role         = {user.role.role_name}  (ACCOUNTS says {role_name})")
         print(f"  is_active    = {user.is_active}")
+        print(f"  approval     = {user.approval_status}")
         print(f"  last_login   = {user.last_login_at}")
         if cred is None:
             print("  credentials  = MISSING — cannot log in; needs the staff password-reset process")
