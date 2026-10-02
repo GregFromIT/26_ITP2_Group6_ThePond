@@ -1,0 +1,17 @@
+challenge: dog-blog
+category: web
+difficulty: hard
+description: |
+  This minimal blog could definitely use a security audit...
+
+  Author: hashkitten
+instructions: |
+  Open the console to use your attacker machine.
+  Open the challenge:  http://10.1.30.10:31312/
+  Download:  curl -O http://10.1.30.10:8000/dog-blog/dog-blog.zip
+  Flag format: skbdg{...}
+vm_templates:
+- name: Kali-attacker
+  role: attacker
+flag: skbdg{i_serialously_thought_this_was_secure_af}
+points: 300

@@ -1,0 +1,17 @@
+challenge: libeatpan
+category: misc
+difficulty: medium
+description: |
+  We found this mail framework but couldn't quite get it working... That's all good though, all that matters is that it's pwnable.
+
+  Author: joseph
+instructions: |
+  Open the console to use your attacker machine.
+  Connect to the challenge:  nc 10.1.30.10 31304
+  Download:  curl -O http://10.1.30.10:8000/libeatpan/libeatpan.tar.gz
+  Flag format: skbdg{...}
+vm_templates:
+- name: Kali-attacker
+  role: attacker
+flag: skbdg{wh4t_an_int3r3st1ng_l00king_ema1l_addr3ss_y0u_hav3_th3re...}
+points: 200

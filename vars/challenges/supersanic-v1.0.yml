@@ -1,0 +1,17 @@
+challenge: supersanic-v1.0
+category: crypto
+difficulty: easy
+description: |
+  Gotta Go Fast!
+
+  Author: joseph
+instructions: |
+  Open the console to use your attacker machine.
+  Connect to the challenge:  nc 10.1.30.10 31305
+  Download:  curl -O http://10.1.30.10:8000/supersanic-v1.0/supersanic1.py
+  Flag format: skbdg{...}
+vm_templates:
+- name: Kali-attacker
+  role: attacker
+flag: skbdg{y0u_went_v3ry_fas7_prepar3_t0_g0_3ven_f4st3r!}
+points: 100

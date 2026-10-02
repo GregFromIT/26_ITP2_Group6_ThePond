@@ -68,8 +68,8 @@ def seed_challenges_from_yaml():
            if challenge is None:
                challenge = Challenge(
                    title=slug,
-                   description=f"Seeded from vars/challenges/{path.name}",
-                   instructions="See the challenge brief for connection details.",
+                   description=cfg.get("description", f"Seeded from vars/challenges/{path.name}"),
+                   instructions=cfg.get("instructions", "See the challenge brief for connection details."),
                    category=cfg.get("category", "general"),
                    difficulty=cfg.get("difficulty"),
                    status="published",

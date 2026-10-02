@@ -1,0 +1,18 @@
+challenge: dockjmp
+category: pwn
+difficulty: easy
+description: |
+  Dock jumping is kind of like long jumping, but for dogs.
+
+  Author: joseph
+instructions: |
+  Open the console to use your attacker machine.
+  Connect to the challenge:  nc 10.1.30.10 31301
+  Download:  curl -O http://10.1.30.10:8000/dockjmp/dockjmp.c
+  Download:  curl -O http://10.1.30.10:8000/dockjmp/dockjmp
+  Flag format: skbdg{...}
+vm_templates:
+- name: Kali-attacker
+  role: attacker
+flag: skbdg{__longjmp_2_win!!}
+points: 100

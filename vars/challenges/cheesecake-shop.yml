@@ -1,0 +1,17 @@
+challenge: cheesecake-shop
+category: crypto
+difficulty: easy
+description: |
+  Welcome to the cheesecake shop. Please check out our brie-lliant collection of cheesecakes.
+
+  Author: Neobeo
+instructions: |
+  Open the console to use your attacker machine.
+  Connect to the challenge:  nc 10.1.30.10 31307
+  Download:  curl -O http://10.1.30.10:8000/cheesecake-shop/cheesecake_shop.sage
+  Flag format: skbdg{...}
+vm_templates:
+- name: Kali-attacker
+  role: attacker
+flag: skbdg{th1s_i5_n4Cho_av3Rage_crYP7o_challenge_it_H45_way_t00_many_H0L35}
+points: 100

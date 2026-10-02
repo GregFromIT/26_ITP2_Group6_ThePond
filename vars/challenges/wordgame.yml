@@ -1,0 +1,17 @@
+challenge: wordgame
+category: pwn
+difficulty: easy
+description: |
+  Can you guess the word?
+
+  Author: john
+instructions: |
+  Open the console to use your attacker machine.
+  Connect to the challenge:  nc 10.1.30.10 31303
+  Download:  curl -O http://10.1.30.10:8000/wordgame/wordgame.tar.gz
+  Flag format: skbdg{...}
+vm_templates:
+- name: Kali-attacker
+  role: attacker
+flag: skbdg{d154bl3_c4p5_wh3n_r3tur1ng}
+points: 100

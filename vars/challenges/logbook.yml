@@ -1,0 +1,17 @@
+challenge: logbook
+category: web
+difficulty: easy
+description: |
+  Welcome to the skateboarding dogs' logbook. If you were here, please add a quick entry :)
+
+  Author: dot
+instructions: |
+  Open the console to use your attacker machine.
+  Open the challenge:  http://10.1.30.10:31315/
+  Download:  curl -O http://10.1.30.10:8000/logbook/logbook.zip
+  Flag format: skbdg{...}
+vm_templates:
+- name: Kali-attacker
+  role: attacker
+flag: skbdg{s1mp13_pR0c_w8lk1ng_a424bdc97e2f2723}
+points: 100

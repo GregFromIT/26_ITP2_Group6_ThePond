@@ -1,0 +1,16 @@
+challenge: python-crossword
+category: misc
+difficulty: easy
+description: |
+  This crossword is a little different.
+
+  Author: hashkitten
+instructions: |
+  Open the console to use your attacker machine.
+  Open the challenge:  http://10.1.30.10:31310/
+  Flag format: skbdg{...}
+vm_templates:
+- name: Kali-attacker
+  role: attacker
+flag: skbdg{nytminihasnothingonthis}
+points: 100
