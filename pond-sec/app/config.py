@@ -123,6 +123,12 @@ class Config:
     # reply, since it had no route out.
     PROXMOX_LAB_GATEWAY = os.environ.get("PROXMOX_LAB_GATEWAY", "10.1.20.1")
 
+    # Clones of this template (Red Duck) download their challenge's handout
+    # files from the Docker host's file server on first boot. Empty disables it.
+    POND_HANDOUT_TEMPLATE = os.environ.get("POND_HANDOUT_TEMPLATE", "Kali-attacker")
+    POND_HANDOUT_BASE_URL = os.environ.get("POND_HANDOUT_BASE_URL", "http://10.1.30.10:8000")
+    POND_HANDOUT_USER = os.environ.get("POND_HANDOUT_USER", "kali")
+
     # Certificate verification is ON everywhere. Without it anyone on the path to
     # the hypervisor can impersonate it and capture the API token. 0 is refused
     # in production; in development an explicit 0 works but logs a warning.

@@ -447,6 +447,33 @@ def inject_instance_network(
         ssh.close()
 
 
+def inject_firstboot_command(
+    client: ProxmoxAPI, node: str, vmid: int, command: str,
+    proxmox_host: str, vg_name: str = "pve",
+) -> None:
+    """
+    Queues a shell command that the clone runs once, as root, on its first
+    boot (virt-customize --firstboot-command, libguestfs.org/virt-customize.1.html
+    "FIRSTBOOT SCRIPTS"). Same SSH + offline-disk path as
+    inject_instance_network(), so it needs no extra API privilege.
+
+    Used to pull a challenge's handout files onto the entry-point VM before
+    the student opens the console. Tested by hand on a linked clone of
+    template 10001 on 2026-10-02.
+    """
+    _refuse_protected(vmid)   # this writes into the VM's disk over SSH
+    disk_path = f"/dev/{vg_name}/{_find_disk_volid(client, node, vmid)}"
+
+    ssh = _ssh_client(proxmox_host)
+    try:
+        cmd = f"virt-customize -a {shlex.quote(disk_path)} --firstboot-command {shlex.quote(command)}"
+        _, stdout, stderr = ssh.exec_command(cmd)
+        if stdout.channel.recv_exit_status() != 0:
+            raise ProxmoxError(f"virt-customize failed for vmid {vmid}: {stderr.read().decode()}")
+    finally:
+        ssh.close()
+
+
 # ------------------------------------------------------------------ clone
 
 def clone_and_start(
@@ -466,6 +493,7 @@ def clone_and_start(
     gateway: str | None = None,
     pool: str | None = None,
     challenge_template_id: int | None = None,
+    firstboot_command: str | None = None,
 ) -> Clone:
     """
     static_ip/proxmox_host: pass both together to bake a static IP into
@@ -488,8 +516,8 @@ def clone_and_start(
     least-privilege token (playbooks/pond_least_privilege.yml) may only
     create VMs in its own pool, so without this every clone is a 403.
     """
-    if static_ip is not None and proxmox_host is None:
-        raise ValueError("proxmox_host is required when static_ip is set - inject_instance_network needs it to SSH in")
+    if (static_ip is not None or firstboot_command is not None) and proxmox_host is None:
+        raise ValueError("proxmox_host is required when static_ip or firstboot_command is set - both inject over SSH")
 
     _refuse_protected(template_vmid)
     reserved = claim_vmid(client, node, instance_id, template_id, *vmid_range, challenge_template_id=challenge_template_id)
@@ -507,6 +535,9 @@ def clone_and_start(
         if static_ip is not None:
             effective_gateway = gateway if vnet is None else None
             inject_instance_network(client, node, vmid, static_ip, proxmox_host, gateway=effective_gateway)
+
+        if firstboot_command is not None:
+            inject_firstboot_command(client, node, vmid, firstboot_command, proxmox_host)
 
         if vnet is not None:
             current_net0 = client.nodes(node).qemu(vmid).config.get()["net0"]

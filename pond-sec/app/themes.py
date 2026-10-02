@@ -51,6 +51,7 @@ ADDING A ROUTE HERE: @bp.route -> @login_required -> _owned_instance() ->
 throttle if it can be hammered -> audit.record() if it changes state.
 """
 
+import shlex
 import ssl
 import threading
 from datetime import datetime
@@ -303,6 +304,23 @@ def detail(theme_id):
 
 # ------------------------------------------------------------------- launch
 
+def _handout_command(template, challenge):
+    """First-boot command that pulls this challenge's handouts onto the
+    entry-point VM (Red Duck), or None for any other template. Run as root
+    inside the clone by provisioner.inject_firstboot_command(). wget flags:
+    gnu.org/software/wget/manual/wget.html, "Recursive Retrieval Options".
+    shlex.quote because the guest runs this through sh, as root."""
+    cfg = current_app.config
+    if not cfg["POND_HANDOUT_TEMPLATE"] or template.template_name != cfg["POND_HANDOUT_TEMPLATE"]:
+        return None
+    user = cfg["POND_HANDOUT_USER"]
+    dest = shlex.quote(f"/home/{user}/Desktop/{challenge.title}")
+    url = shlex.quote(f"{cfg['POND_HANDOUT_BASE_URL'].rstrip('/')}/{challenge.title}/")
+    return (f"wget -q -r -np -nH --cut-dirs=1 -R 'index.html*' --tries=10 --waitretry=3 "
+            f"--retry-connrefused -P {dest} {url}; "
+            f"chown -R {shlex.quote(user)}:{shlex.quote(user)} {shlex.quote(f'/home/{user}/Desktop')}")
+
+
 @bp.route("/challenges/<int:challenge_id>/launch", methods=("POST",))
 @login_required
 def launch(challenge_id):
@@ -376,6 +394,7 @@ def launch(challenge_id):
                 vnet=vnet,
                 static_ip=assignment.static_ip,
                 gateway=current_app.config["PROXMOX_LAB_GATEWAY"] if vnet is None else None,
+                firstboot_command=_handout_command(template, challenge),
             )
             clones[assignment.vm_role] = (clone, assignment)
         if challenge.execution_type == "container_lab":
