@@ -15,7 +15,7 @@ challenges
 from datetime import datetime, timezone
 from typing import Optional
 
-from sqlalchemy import DateTime, ForeignKey, Integer, String, Text
+from sqlalchemy import CheckConstraint, DateTime, ForeignKey, Integer, String, Text
 from sqlalchemy.orm import Mapped, mapped_column, relationship
 
 from db.orm import db
@@ -28,6 +28,15 @@ def utc_now():
 class Challenge(db.Model):
     __bind_key__ = "pond"
     __tablename__ = "challenges"
+    __table_args__ = (
+        CheckConstraint("execution_type IN ('vm', 'container_lab', 'offline')", name="ck_challenge_execution_type"),
+        CheckConstraint("(execution_type = 'container_lab' AND docker_challenge_key IS NOT NULL "
+                        "AND length(trim(docker_challenge_key)) > 0) OR "
+                        "(execution_type <> 'container_lab' AND docker_challenge_key IS NULL)",
+                        name="ck_challenge_docker_key"),
+    )
+    execution_type: Mapped[str] = mapped_column(String(20), nullable=False, default="vm", server_default="vm")
+    docker_challenge_key: Mapped[Optional[str]] = mapped_column(String(160))
 
     challenge_id: Mapped[int] = mapped_column(
         Integer,
@@ -94,7 +103,7 @@ class Challenge(db.Model):
 
     created_by: Mapped[Optional["User"]] = relationship()
 
-    vm_templates: Mapped[list["VMTemplate"]] = relationship(
+    template_assignments: Mapped[list["ChallengeTemplate"]] = relationship(
         back_populates="challenge",
         cascade="all, delete-orphan"
     )

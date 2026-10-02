@@ -10,7 +10,7 @@ from dataclasses import dataclass
 
 
 SCHEMA_VERSION = 1
-CHALLENGE_TYPES = ("vm", "scored_vm")
+CHALLENGE_TYPES = ("vm", "scored_vm", "container_lab", "offline")
 # Initial operator policy, not a statement of available Proxmox capacity.
 MAX_VMS = 8
 MAX_CPU_CORES_PER_VM = 8
@@ -69,20 +69,31 @@ _MANIFEST_SCHEMA = {
     **_object({
         "schema_version": {"const": SCHEMA_VERSION, "type": "integer"},
         "challenge_type": {"enum": list(CHALLENGE_TYPES)},
+        "docker_challenge_key": {"type": "string", "maxLength": 160, "pattern": r"^[a-zA-Z0-9][a-zA-Z0-9_.-]*(?![\s\S])"},
+        "workstation_template_id": _integer(1, 2147483647),
         "title": _string(100), "description": _string(10000),
         "instructions": _string(20000), "category": _string(50),
         "difficulty": {"enum": ["beginner", "intermediate", "advanced"]},
         "time_limit_minutes": _integer(1, 1440),
-        "vms": {"type": "array", "minItems": 1, "maxItems": MAX_VMS, "items": _VM},
+        "vms": {"type": "array", "minItems": 0, "maxItems": MAX_VMS, "items": _VM},
         "network_rules": {"type": "array", "maxItems": 128, "uniqueItems": True, "items": _NETWORK_RULE},
-        "flags": {"type": "array", "maxItems": 100, "items": _FLAG},
+        "flags": {"type": "array", "maxItems": 100, "items": {**deepcopy(_FLAG), "required": ["name", "flag_hash", "points"]}},
     }, ["schema_version", "challenge_type", "title", "description", "instructions",
         "category", "difficulty", "vms", "network_rules", "flags"]),
-    "allOf": [{
-        "if": {"properties": {"challenge_type": {"const": "scored_vm"}}},
-        "then": {"properties": {"flags": {"minItems": 1}}},
-        "else": {"properties": {"flags": {"maxItems": 0}}},
-    }],
+    "allOf": [
+        {"if": {"properties": {"challenge_type": {"enum": ["vm", "scored_vm"]}}},
+         "then": {"properties": {"vms": {"minItems": 1}, "flags": {"items": {"required": ["vm_role"]}}}},
+         "else": {"properties": {"vms": {"maxItems": 0}, "network_rules": {"maxItems": 0},
+                                 "flags": {"items": {"not": {"required": ["vm_role"]}}}}}},
+        {"if": {"properties": {"challenge_type": {"const": "scored_vm"}}},
+         "then": {"properties": {"flags": {"minItems": 1}}}},
+        {"if": {"properties": {"challenge_type": {"const": "vm"}}},
+         "then": {"properties": {"flags": {"maxItems": 0}}}},
+        {"if": {"properties": {"challenge_type": {"const": "container_lab"}}},
+         "then": {"required": ["docker_challenge_key", "workstation_template_id"]},
+         "else": {"not": {"anyOf": [{"required": ["docker_challenge_key"]},
+                                     {"required": ["workstation_template_id"]}]}}},
+    ],
 }
 
 
@@ -119,3 +130,8 @@ def required_image_files(validated_manifest):
         if vm["source"]["kind"] == "image":
             paths.setdefault(vm["source"]["path"], []).append(vm["role"])
     return tuple(FileRequirement(path, "image", tuple(roles)) for path, roles in sorted(paths.items()))
+
+
+def execution_type(manifest):
+    """After schema validation; scored_vm remains a supported v1 manifest name."""
+    return "vm" if manifest["challenge_type"] in ("vm", "scored_vm") else manifest["challenge_type"]

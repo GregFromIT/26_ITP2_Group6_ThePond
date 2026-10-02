@@ -293,9 +293,10 @@ def _client():
 
 def clone_and_start(template_vmid: int, node: str = None, label: str = "challenge",
                      *, instance_id: int, template_id: int, vnet: str | None = None,
-                     static_ip: str | None = None, gateway: str | None = None) -> Clone:
+                     static_ip: str | None = None, gateway: str | None = None,
+                     challenge_template_id: int | None = None) -> Clone:
     """
-    static_ip: pass the launching challenge's VMTemplate.static_ip to bake
+    static_ip: pass the launching challenge's ChallengeTemplate.static_ip to bake
     a static network config into this clone before boot (see provisioner's
     inject_instance_network()). None skips it entirely - the clone boots
     with whatever the template's own disk already has.
@@ -324,6 +325,7 @@ def clone_and_start(template_vmid: int, node: str = None, label: str = "challeng
         client, template_vmid, node, label=label,
         full_clone=cfg["PROXMOX_FULL_CLONE"], storage=cfg["PROXMOX_STORAGE"],
         instance_id=instance_id, template_id=template_id, vnet=vnet,
+        challenge_template_id=challenge_template_id,
         static_ip=static_ip, proxmox_host=proxmox_host, gateway=gateway,
         pool=cfg["PROXMOX_POOL"],   # the only pool the token can create VMs in
     )

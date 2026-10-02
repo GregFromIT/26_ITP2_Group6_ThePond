@@ -1,0 +1,21 @@
+{
+  "schema_version": 1,
+  "challenge_type": "container_lab",
+  "title": "BSides example",
+  "description": "Use the Redduck workstation to access the exercise supplied by the Docker server.",
+  "instructions": "Use the Redduck workstation to access the exercise supplied by the Docker server.",
+  "category": "networking",
+  "difficulty": "beginner",
+  "time_limit_minutes": 60,
+  "vms": [],
+  "network_rules": [],
+  "flags": [
+    {
+      "name": "Solution",
+      "points": 100,
+      "flag_hash": "cf65267a055fe32a51e9e0daba96ad921c86e5749f14fded20f2ed055498f134"
+    }
+  ],
+  "docker_challenge_key": "bsides-example",
+  "workstation_template_id": 1
+}

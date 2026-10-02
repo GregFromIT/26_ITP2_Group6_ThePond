@@ -12,7 +12,7 @@ from challenge_ingestion.intake import IntakeBusy, IntakeError, IntakeService
 from challenge_ingestion.notifications import NotificationService
 from challenge_ingestion.publication import PublicationError, PublicationWorker
 from challenge_ingestion.review import ReviewError, ReviewService
-from challenge_ingestion.requirements import MAX_IMAGE_BYTES, MAX_MANIFEST_BYTES, required_image_files
+from challenge_ingestion.requirements import MAX_IMAGE_BYTES, MAX_MANIFEST_BYTES, required_image_files, execution_type
 from challenge_ingestion.storage import QuarantineStorage, StorageError
 from .auth import login_required
 from .roles import can, require
@@ -136,7 +136,8 @@ def detail(submission_id):
     return render_template("admin/submission_detail.html", submission=row, files=files, jobs=jobs,
                            issues=issues, required=required, present={f.logical_path for f in files},
                            review_job=review_job, reviews=reviews,
-                           publication_configured=current_app.config.get("INGESTION_PUBLICATION_ADAPTER") is not None,
+                           publication_configured=(execution_type(row.manifest_json) != "vm" or
+                               current_app.config.get("INGESTION_PUBLICATION_ADAPTER") is not None),
                            upload_limit=min(current_app.config["UPLOAD_MAX_IMAGE_BYTES"], MAX_IMAGE_BYTES))
 
 

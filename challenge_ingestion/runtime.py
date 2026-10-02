@@ -44,13 +44,10 @@ def process_once(app, *, worker_id, mode='all'):
                 if mode in {'all', 'validate'}:
                     results['validation_job'] = ValidationWorker(engine, storage, **kwargs).run_once()
                 if mode in {'all', 'publish'}:
-                    if check_configuration(app.config)['publication_adapter_configured']:
-                        results['publication_job'] = PublicationWorker(engine, storage,
-                            adapter=app.config['INGESTION_PUBLICATION_ADAPTER'], **kwargs).run_once()
-                    elif mode == 'publish':
-                        raise ValueError('Publication adapter is not configured')
-                    else:
-                        results['publication_disabled'] = True
+                    results['publication_job'] = PublicationWorker(engine, storage,
+                        adapter=app.config.get('INGESTION_PUBLICATION_ADAPTER'), **kwargs).run_once()
+                    if not check_configuration(app.config)['publication_adapter_configured']:
+                        results['publication_disabled'] = True  # VM imports only, not metadata publication.
         if mode in {'all', 'notify'}:
             delivery = NotificationService(engine).deliver_pending(limit=100)
             results['notifications_sent'] = delivery.sent

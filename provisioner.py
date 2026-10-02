@@ -183,6 +183,7 @@ def claim_vmid(
     template_id: int,
     start: int = DEFAULT_VMID_RANGE[0],
     end: int = DEFAULT_VMID_RANGE[1],
+    *, challenge_template_id: int | None = None,
 ) -> VMInstance:
     """Atomically reserve a free vmid by inserting a real VMInstance row for
     it (status='reserving'), inside the same transaction that proves the
@@ -219,6 +220,7 @@ def claim_vmid(
             row = VMInstance(
                 instance_id=instance_id,
                 template_id=template_id,
+                challenge_template_id=challenge_template_id,
                 proxmox_vmid=candidate,
                 proxmox_node=node,
                 status="reserving",
@@ -463,11 +465,12 @@ def clone_and_start(
     proxmox_host: str | None = None,
     gateway: str | None = None,
     pool: str | None = None,
+    challenge_template_id: int | None = None,
 ) -> Clone:
     """
     static_ip/proxmox_host: pass both together to bake a static IP into
     this clone's disk before boot (see inject_instance_network()). Sourced
-    at the call site from the launching challenge's VMTemplate.static_ip -
+    at the call site from the launching challenge's ChallengeTemplate.static_ip -
     that field already exists in db/VMs_models.py and is already read
     elsewhere (themes.py's firewall-rule logic), confirming one fixed IP
     per template is the intended design, not per-clone allocation.
@@ -489,7 +492,7 @@ def clone_and_start(
         raise ValueError("proxmox_host is required when static_ip is set - inject_instance_network needs it to SSH in")
 
     _refuse_protected(template_vmid)
-    reserved = claim_vmid(client, node, instance_id, template_id, *vmid_range)
+    reserved = claim_vmid(client, node, instance_id, template_id, *vmid_range, challenge_template_id=challenge_template_id)
     vmid = reserved.proxmox_vmid
     options = {"newid": vmid, "name": label[:63], "full": 1 if full_clone else 0, "target": node}
     if full_clone:

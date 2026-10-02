@@ -1,0 +1,19 @@
+{
+  "schema_version": 1,
+  "challenge_type": "offline",
+  "title": "Physical exercise",
+  "description": "Use the materials supplied by your instructor and submit the answer here.",
+  "instructions": "Use the materials supplied by your instructor and submit the answer here.",
+  "category": "networking",
+  "difficulty": "beginner",
+  "time_limit_minutes": 60,
+  "vms": [],
+  "network_rules": [],
+  "flags": [
+    {
+      "name": "Solution",
+      "points": 100,
+      "flag_hash": "cf65267a055fe32a51e9e0daba96ad921c86e5749f14fded20f2ed055498f134"
+    }
+  ]
+}

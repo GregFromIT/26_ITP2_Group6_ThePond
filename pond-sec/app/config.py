@@ -70,6 +70,8 @@ class Config:
     INGESTION_VERIFY_TEMPLATE = None
     INGESTION_INSPECT_IMAGE = None
     INGESTION_PUBLICATION_ADAPTER = None
+    # Trusted integration object; the Docker server implementation is separate.
+    CONTAINER_LAB_ADAPTER = None
     MAX_FIELD_LENGTH = _int("MAX_FIELD_LENGTH", 200)
 
     FORCE_HTTPS = _bool("FORCE_HTTPS", IS_PRODUCTION)

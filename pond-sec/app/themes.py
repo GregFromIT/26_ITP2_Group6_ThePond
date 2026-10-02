@@ -66,6 +66,8 @@ from flask_sock import Sock
 from db.orm import db
 from db.challenge_models import Challenge, NetworkRule
 from db.VMs_models import ChallengeFlag, VMTemplate
+from db.challenge_template_models import ChallengeTemplate
+from . import container_lab
 from db.runtime_models import ChallengeInstance, VMInstance
 
 from . import audit, throttle
@@ -136,11 +138,14 @@ def _owned_instance(instance_id):
         "challenge_id": ci.challenge_id,
         "challenge_name": challenge.title,
         "brief": challenge.description,
+        "execution_type": challenge.execution_type,
+        "instructions": challenge.instructions,
         "difficulty": challenge.difficulty,
         "status": ci.status,
         "started_at": ci.started_at,
         "ended_at": ci.completed_at or ci.stopped_at,
-        "console_available": bool(vm and vm.status == "running"),
+        "console_available": bool(ci.status == "running" and vm and vm.status == "running"),
+        "docker_cleanup_pending": ci.docker_status == "cleanup_pending",
         "proxmox_vmid": vm.proxmox_vmid if vm else None,
         "node": vm.proxmox_node if vm else None,
         "vm_status": vm.status if vm else None,
@@ -159,7 +164,7 @@ def _active_instance(user_id):
     """The user's in-progress instance, if any. None means they can launch."""
     ci = (
         db.session.query(ChallengeInstance)
-        .filter_by(user_id=user_id, status="running")
+        .filter(ChallengeInstance.user_id == user_id, ChallengeInstance.status.in_(("running", "provisioning")))
         .order_by(ChallengeInstance.started_at.desc())
         .first()
     )
@@ -181,8 +186,7 @@ def _live_panel(active_row):
 
     flag_rows = (
         db.session.query(ChallengeFlag)
-        .join(VMTemplate, ChallengeFlag.template_id == VMTemplate.template_id)
-        .filter(VMTemplate.challenge_id == challenge_id, ChallengeFlag.is_active.is_(True))
+        .filter(ChallengeFlag.challenge_id == challenge_id, ChallengeFlag.is_active.is_(True))
         .order_by(ChallengeFlag.points, ChallengeFlag.flag_id)
         .all()
     )
@@ -229,8 +233,7 @@ def index():
         category = category or DEFAULT_CATEGORY
         flags_total = (
             db.session.query(db.func.count(ChallengeFlag.flag_id))
-            .join(VMTemplate, ChallengeFlag.template_id == VMTemplate.template_id)
-            .join(Challenge, VMTemplate.challenge_id == Challenge.challenge_id)
+                .join(Challenge, ChallengeFlag.challenge_id == Challenge.challenge_id)
             .filter(Challenge.category == category, ChallengeFlag.is_active.is_(True))
             .scalar()
         )
@@ -251,8 +254,7 @@ def _solves_in_category(user_id, category):
     return (
         db.session.query(UserSolve)
         .join(ChallengeFlag, UserSolve.flag_id == ChallengeFlag.flag_id)
-        .join(VMTemplate, ChallengeFlag.template_id == VMTemplate.template_id)
-        .join(Challenge, VMTemplate.challenge_id == Challenge.challenge_id)
+        .join(Challenge, ChallengeFlag.challenge_id == Challenge.challenge_id)
         .filter(UserSolve.user_id == user_id, Challenge.category == category)
     )
 
@@ -279,6 +281,8 @@ def detail(theme_id):
                 "challenge_id": challenge.challenge_id,
                 "name": challenge.title,
                 "brief": challenge.description,
+                "execution_type": challenge.execution_type,
+                "instructions": challenge.instructions,
                 "difficulty": challenge.difficulty or "Entry",
                 "vm_name": None,
             },
@@ -317,47 +321,69 @@ def launch(challenge_id):
         )
         return redirect(_back(existing["theme_id"], existing["challenge_id"]))
 
-    templates = (
-        db.session.query(VMTemplate)
-        .filter_by(challenge_id=challenge_id, is_active=True, is_user_accessible=True)
-        .order_by(VMTemplate.boot_order)
-        .all()
-    )
-    if not templates:
+    if challenge.execution_type == "container_lab":
+        try:
+            container_lab.adapter()
+        except container_lab.ContainerLabError as exc:
+            flash(str(exc), "error")
+            return redirect(_back(category, challenge_id))
+
+    assignments = (db.session.query(ChallengeTemplate).join(VMTemplate)
+        .filter(ChallengeTemplate.challenge_id == challenge_id, VMTemplate.is_active.is_(True),
+                ChallengeTemplate.is_user_accessible.is_(True))
+        .order_by(ChallengeTemplate.boot_order).all())
+    if challenge.execution_type != "offline" and not assignments:
         flash("No VM template is mapped to this challenge yet.", "error")
         return redirect(url_for("themes.detail", theme_id=category))
+    if challenge.execution_type == "container_lab" and len(assignments) != 1:
+        flash("A Docker-backed challenge needs one workstation template assignment.", "error")
+        return redirect(_back(category, challenge_id))
 
     instance = ChallengeInstance(
         user_id=g.user["user_id"], challenge_id=challenge_id,
-        status="running", started_at=datetime.utcnow(),
+        status="provisioning", started_at=datetime.utcnow(),
+        docker_challenge_key=challenge.docker_challenge_key,
     )
     db.session.add(instance)
     db.session.commit()
+    if challenge.execution_type == "offline":
+        instance.status = "running"
+        db.session.commit()
+        audit.record(audit.INSTANCE_LAUNCH, user_id=g.user["user_id"],
+                     detail=f"offline challenge {challenge_id}, attempt {instance.instance_id}")
+        return redirect(_back(category, challenge_id))
 
     # Only multi-VM challenges get a session VNet + per-VM firewall - a
     # single-VM challenge behaves exactly as before (clone stays on its
     # template's existing bridge, no isolation-layer changes), since there
     # is no second VM in the session for isolation to matter against.
     vnet = None
-    if len(templates) > 1:
+    if len(assignments) > 1:
         vnet = create_session_vnet(instance.instance_id)
         instance.network_identifier = vnet
         db.session.commit()
 
     label_base = f"{g.user['username']}-{challenge_id}"
-    clones = {}  # vm_role -> (Clone, VMTemplate) - lets network rules resolve role names later
+    clones = {}  # vm_role -> (Clone, ChallengeTemplate) - lets network rules resolve role names later
     try:
-        for template in templates:
-            label = f"{label_base}-{template.vm_role}"[:63]
+        for assignment in assignments:
+            template = assignment.template
+            label = f"{label_base}-{assignment.vm_role}"[:63]
             clone = clone_and_start(
                 template.proxmox_template_vmid, template.proxmox_node, label,
                 instance_id=instance.instance_id, template_id=template.template_id,
+                challenge_template_id=assignment.challenge_template_id,
                 vnet=vnet,
-                static_ip=template.static_ip,
+                static_ip=assignment.static_ip,
                 gateway=current_app.config["PROXMOX_LAB_GATEWAY"] if vnet is None else None,
             )
-            clones[template.vm_role] = (clone, template)
-    except ProxmoxError as exc:
+            clones[assignment.vm_role] = (clone, assignment)
+        if challenge.execution_type == "container_lab":
+            clone, assignment = next(iter(clones.values()))
+            container_lab.start(instance, {"vmid": clone.vmid, "node": clone.node,
+                "instance_id": instance.instance_id, "challenge_template_id": assignment.challenge_template_id})
+    except (ProxmoxError, container_lab.ContainerLabError) as exc:
+        container_lab.stop(instance)
         # A half-launched multi-VM session is worse than a clean failure -
         # tear down everything that DID start before reporting the error.
         for clone, _ in clones.values():
@@ -371,10 +397,10 @@ def launch(challenge_id):
             except ProxmoxError:
                 pass
         instance.status = "abandoned"
-        instance.error_message = str(exc)
+        instance.error_message = "Environment launch failed; see administrator logs."
         instance.stopped_at = datetime.utcnow()
         db.session.commit()
-        flash(f"The hypervisor could not start this challenge: {exc}", "error")
+        flash("The environment could not be started. Please contact an administrator.", "error")
         return redirect(url_for("themes.detail", theme_id=category))
 
     if len(clones) > 1:
@@ -389,6 +415,9 @@ def launch(challenge_id):
                 continue  # can't write a rule without a known source address
             dest_clone, _ = clones[rule.to_role]
             apply_network_rule(dest_clone.vmid, source_ip, rule.port, dest_clone.node, rule.protocol)
+
+    instance.status = "running"
+    db.session.commit()
 
     audit.record(
         audit.INSTANCE_LAUNCH,
@@ -410,6 +439,8 @@ def console(instance_id):
     Proxmox server-side. See console_relay() below for the other half.
     """
     instance = _owned_instance(instance_id)
+    if instance["execution_type"] == "offline":
+        abort(404)
     if instance["status"] != "running" or not instance["console_available"]:
         flash("That session is closed, so its machine is gone.", "info")
         return redirect(url_for("themes.detail", theme_id=instance["theme_id"]))
@@ -540,12 +571,17 @@ def flag(instance_id):
 @login_required
 def close(instance_id):
     running = _owned_instance(instance_id)
+    if running["status"] == "provisioning":
+        flash("This environment is still starting. Wait for the launch to finish before closing it.", "info")
+        return redirect(_back(running["theme_id"], running["challenge_id"]))
     if running["status"] != "running":
+        # A repeated close can retry Docker cleanup without changing the result.
+        container_lab.stop(db.session.get(ChallengeInstance, instance_id))
         return redirect(url_for("themes.detail", theme_id=running["theme_id"]))
 
     requested = request.form.get("outcome", "abandoned")
     progress = challenge_progress(g.user["user_id"], running["challenge_id"])
-    status = "complete" if (requested == "complete" and progress["complete"]) else "abandoned"
+    status = "complete" if (requested == "complete" and (progress["complete"] or progress["flags_total"] == 0)) else "abandoned"
 
     _close(instance_id, status)
     if status == "complete":
@@ -621,6 +657,7 @@ def _close(instance_id: int, status: str):
         detail=f"instance {instance_id}, {status}, {duration}s",
     )
 
+    container_lab.stop(instance)
     vnet = instance.network_identifier
     for i, vm in enumerate(vms):
         if not vm.proxmox_vmid:

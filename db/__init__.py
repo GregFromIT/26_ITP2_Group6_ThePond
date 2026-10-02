@@ -56,3 +56,5 @@ from db.submission_file_models import SubmissionFile
 from db.submission_job_models import SubmissionJob
 from db.submission_issue_models import SubmissionIssue
 from db.notification_models import NotificationOutbox
+
+from db.challenge_template_models import ChallengeTemplate

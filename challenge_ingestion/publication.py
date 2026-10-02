@@ -25,6 +25,8 @@ from sqlalchemy.orm import Session
 from db import (AuditLog, Challenge, ChallengeSubmission, NotificationOutbox,
                 SubmissionJob, User, VMTemplate, ChallengeFlag, db)
 from db.challenge_models import NetworkRule
+from db.challenge_template_models import ChallengeTemplate
+from .requirements import execution_type
 from .validation import content_digest, validate_submission
 from .worker import Claim, LeaseLost, ValidationWorker
 from .storage import QuarantineStorage
@@ -68,8 +70,6 @@ class PublicationWorker(ValidationWorker):
 
     def enqueue(self, submission_id, *, actor_user_id, expected_digest, retry=False):
         """Called only by authenticated admin routes; returns the stable job ID."""
-        if not all(callable(getattr(self.adapter, name, None)) for name in ("plan", "prepare", "ready")):
-            raise PublicationError("The deployment publication adapter is not configured.")
         with self._write() as session:
             actor = session.get(User, actor_user_id)
             if actor is None or not actor.is_active or actor.role.role_name != "sysadmin":
@@ -80,6 +80,9 @@ class PublicationWorker(ValidationWorker):
             if row.content_digest != expected_digest:
                 raise PublicationError("The submission changed. Refresh before publishing.")
             self._approval(session, row)
+            if (execution_type(row.manifest_json) == "vm" and
+                    not all(callable(getattr(self.adapter, name, None)) for name in ("plan", "prepare", "ready"))):
+                raise PublicationError("The deployment publication adapter is not configured.")
             key = f"publish-submission:{submission_id}"
             job = session.scalar(select(SubmissionJob).where(SubmissionJob.idempotency_key == key))
             if row.status in {"published", "importing"} and job is not None:
@@ -252,7 +255,8 @@ class PublicationWorker(ValidationWorker):
             if session.scalar(select(VMTemplate.template_id).where(VMTemplate.proxmox_template_vmid.in_([p["vmid"] for p in plans])).limit(1)):
                 raise PublicationError("A template was assigned to another challenge during publication.")
             challenge = Challenge(title=manifest["title"], description=manifest["description"],
-                instructions=manifest["instructions"], category=manifest["category"], difficulty=manifest["difficulty"],
+                instructions=manifest["instructions"], execution_type=execution_type(manifest),
+                docker_challenge_key=manifest.get("docker_challenge_key"), category=manifest["category"], difficulty=manifest["difficulty"],
                 time_limit_minutes=manifest.get("time_limit_minutes"), created_by_user_id=row.uploaded_by_user_id, status="published")
             session.add(challenge)
             session.flush()
@@ -260,15 +264,25 @@ class PublicationWorker(ValidationWorker):
             templates = {}
             for plan in plans:
                 spec = specs[plan["role"]]
-                template = VMTemplate(challenge_id=challenge.challenge_id, template_name=plan["template_name"],
-                    proxmox_template_vmid=plan["vmid"], proxmox_node=plan["node"], vm_role=plan["role"],
-                    cpu_cores=spec["cpu_cores"], memory_mb=spec["memory_mb"], disk_gb=spec["disk_gb"],
-                    boot_order=spec["boot_order"], is_user_accessible=spec["is_user_accessible"])
+                template = VMTemplate(template_name=plan["template_name"],
+                    proxmox_template_vmid=plan["vmid"], proxmox_node=plan["node"],
+                    cpu_cores=spec["cpu_cores"], memory_mb=spec["memory_mb"], disk_gb=spec["disk_gb"])
                 session.add(template)
                 templates[plan["role"]] = template
             session.flush()
+            for role, template in templates.items():
+                spec = specs[role]
+                session.add(ChallengeTemplate(challenge_id=challenge.challenge_id, template_id=template.template_id,
+                    vm_role=role, boot_order=spec["boot_order"], is_user_accessible=spec["is_user_accessible"]))
+            if challenge.execution_type == "container_lab":
+                workstation = session.get(VMTemplate, manifest["workstation_template_id"])
+                if workstation is None or not workstation.is_active:
+                    raise PublicationError("Selected workstation template does not exist or is inactive.")
+                session.add(ChallengeTemplate(challenge_id=challenge.challenge_id, template_id=workstation.template_id,
+                                              vm_role="workstation", boot_order=1, is_user_accessible=True))
             for flag in manifest["flags"]:
-                session.add(ChallengeFlag(template_id=templates[flag["vm_role"]].template_id, flag_name=flag["name"],
+                session.add(ChallengeFlag(challenge_id=challenge.challenge_id,
+                    template_id=templates[flag["vm_role"]].template_id if "vm_role" in flag else None, flag_name=flag["name"],
                     flag_hash=flag["flag_hash"], points=flag["points"], sequence_number=flag.get("sequence_number")))
             for rule in manifest["network_rules"]:
                 session.add(NetworkRule(challenge_id=challenge.challenge_id, **rule))
@@ -283,8 +297,6 @@ class PublicationWorker(ValidationWorker):
                 event_type="published", deduplication_key=f"published:{row.submission_id}", message="Your challenge has been published."))
 
     def run_once(self):
-        if not all(callable(getattr(self.adapter, name, None)) for name in ("plan", "prepare", "ready")):
-            raise PublicationError("The deployment publication adapter is not configured.")
         claim = self.claim()
         if claim is None:
             return None
@@ -312,17 +324,18 @@ class PublicationWorker(ValidationWorker):
                 if not report.passed:
                     raise PublicationError("Publication revalidation failed; administrator review is required.")
             revalidate()
-            plans = self._journal(claim, manifest)
-            guard = lambda: self.guard(claim)
-            guard()
-            checkpoint = lambda role, **values: self.checkpoint(claim, role, **values)
-            if self.adapter.prepare(deepcopy(manifest), deepcopy(plans), tuple(files), self.storage, checkpoint, guard) is not True:
-                raise PublicationError("Resource preparation did not complete successfully.")
-            guard()
-            with Session(self.engine) as session:
-                plans = deepcopy(self._owned(session, claim).resource_inventory_json)
-            if self.adapter.ready(deepcopy(manifest), plans, guard) is not True:
-                raise PublicationError("Isolated readiness checks did not pass.")
+            if execution_type(manifest) == "vm":
+                plans = self._journal(claim, manifest)
+                guard = lambda: self.guard(claim)
+                guard()
+                checkpoint = lambda role, **values: self.checkpoint(claim, role, **values)
+                if self.adapter.prepare(deepcopy(manifest), deepcopy(plans), tuple(files), self.storage, checkpoint, guard) is not True:
+                    raise PublicationError("Resource preparation did not complete successfully.")
+                guard()
+                with Session(self.engine) as session:
+                    plans = deepcopy(self._owned(session, claim).resource_inventory_json)
+                if self.adapter.ready(deepcopy(manifest), plans, guard) is not True:
+                    raise PublicationError("Isolated readiness checks did not pass.")
             # Verify bytes again after external preparation/testing. A trusted
             # importer must use the inspected immutable object, never a path
             # resolved from uploaded metadata or an unverified external URL.

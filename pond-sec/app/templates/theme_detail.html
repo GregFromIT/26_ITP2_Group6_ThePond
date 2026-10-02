@@ -32,19 +32,25 @@
         <p class="eyebrow">{{ challenge['difficulty'] }}</p>
         <h3>{{ challenge['name'] }}</h3>
         <p>{{ challenge['brief'] }}</p>
+        <p class="tag">{{ challenge['execution_type']|replace('_', ' ') }}</p>
+        <details><summary>Instructions</summary>{% for line in challenge['instructions'].splitlines() %}<p>{{ line }}</p>{% endfor %}</details>
+        {% if challenge['execution_type'] == 'offline' %}<p class="hint">Use the physical materials supplied by your instructor.</p>{% endif %}
 
         {% if live %}
         {# The running challenge works in place — there is no separate page. #}
         <div class="live-panel" data-timer-url="{{ url_for('themes.timer', instance_id=live['instance']['instance_id']) }}">
           <p class="eyebrow">
-            <span class="led led-live" aria-hidden="true"></span> Running ·
+            <span class="led led-live" aria-hidden="true"></span> {{ 'Starting' if live['instance']['status'] == 'provisioning' else 'Running' }} ·
             <span class="mono" id="clock">--:--:--</span>
           </p>
 
+          {% if live['instance']['console_available'] %}
           <a class="btn btn-solid btn-block"
              href="{{ url_for('themes.console', instance_id=live['instance']['instance_id']) }}"
              target="_blank" rel="noopener noreferrer">Open console</a>
+          {% endif %}
 
+          {% if progress['flags_total'] > 0 and live['instance']['status'] == 'running' %}
           <form method="post" action="{{ url_for('themes.flag', instance_id=live['instance']['instance_id']) }}">
             <input type="hidden" name="_csrf" value="{{ csrf_token() }}">
             <label for="flag-{{ challenge['challenge_id'] }}">Submit a flag</label>
@@ -53,6 +59,7 @@
             <button class="btn btn-outline btn-block" type="submit">Submit flag</button>
           </form>
 
+          {% endif %}
           <ul class="flag-list">
             {% for flag in live['flags'] %}
             <li class="{% if flag['captured'] %}is-captured{% endif %}">
@@ -83,26 +90,26 @@
 
           <form method="post" action="{{ url_for('themes.close', instance_id=live['instance']['instance_id']) }}">
             <input type="hidden" name="_csrf" value="{{ csrf_token() }}">
-            <input type="hidden" name="outcome" value="{{ 'complete' if progress['complete'] else 'abandoned' }}">
+            <input type="hidden" name="outcome" value="{{ 'complete' if progress['complete'] or progress['flags_total'] == 0 else 'abandoned' }}">
             <button class="btn btn-quiet btn-block" type="submit">
-              {{ 'Close as complete' if progress['complete'] else 'Close and abandon' }}
+              {{ 'Finish attempt' if progress['flags_total'] == 0 else ('Close as complete' if progress['complete'] else 'Close and abandon') }}
             </button>
           </form>
-          <p class="hint">Closing stops the clock and tears the machine down. Anything you left
-             on the VM goes with it.</p>
+          {% if challenge['execution_type'] == 'offline' %}<p class="hint">Closing ends this recorded attempt.</p>
+          {% else %}<p class="hint">Closing removes your workstation and requests cleanup of any Docker session.</p>{% endif %}
         </div>
 
         {% else %}
         <p class="mono soft">
           {{ progress['flags_found'] }}/{{ progress['flags_total'] }} flags ·
           {{ progress['points_earned'] }}/{{ progress['points_total'] }} pts ·
-          {{ challenge['vm_name'] or 'no VM mapped' }}
+          {{ 'Physical exercise' if challenge['execution_type'] == 'offline' else ('Redduck workstation' if challenge['execution_type'] == 'container_lab' else 'VM environment') }}
         </p>
         <form method="post" action="{{ url_for('themes.launch', challenge_id=challenge['challenge_id']) }}">
           <input type="hidden" name="_csrf" value="{{ csrf_token() }}">
           <button class="btn {% if progress['complete'] %}btn-outline{% else %}btn-solid{% endif %} btn-block"
                   type="submit">
-            {% if progress['complete'] %}Replay{% else %}Launch challenge{% endif %}
+            {% if progress['complete'] %}Replay{% elif challenge['execution_type'] == 'offline' %}Start attempt{% else %}Launch challenge{% endif %}
           </button>
         </form>
         {% endif %}
