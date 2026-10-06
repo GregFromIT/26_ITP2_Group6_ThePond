@@ -12,3 +12,5 @@ instance/
 debug.md
 venv/
 the_pond_current.zip
+*.db-wal
+*.db-shm
