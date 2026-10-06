@@ -93,3 +93,23 @@ so nothing outside `db/store.py` needs to change for that migration.
 Proxmox state - fine for a single operator, but worth reconciling against
 `community.general.proxmox_vm_info` before this is used by more than one
 person at once.
+
+## Documentation
+
+All project documentation lives in [`docs/`](docs/):
+
+| Folder | Contents |
+|---|---|
+| [`user-guides/`](docs/user-guides/) | Pond Sec README and user guide — start here |
+| [`architecture/`](docs/architecture/) | Code map, design decisions, challenge-upload handover |
+| [`database/`](docs/database/) | Data model; challenge-upload steps 01–06 |
+| [`backend/`](docs/backend/) | Challenge-upload steps 07–11, 13–14 |
+| [`ui/`](docs/ui/) | Challenge-upload step 12 (upload web pages) |
+| [`networking/`](docs/networking/) | Infrastructure, provisioning and network documentation |
+| [`testing/`](docs/testing/) | Test results, noVNC console testing |
+| [`diagrams/`](docs/diagrams/) | Workflow and use-case diagrams |
+| [`archive/`](docs/archive/) | Superseded material |
+
+The Pond Sec runbook (`pond-sec/docs/README.md`) and security assessment
+(`pond-sec/docs/SECURITY_ASSESSMENT.md`) stay beside the code, because the app,
+tests and playbooks reference them by path.

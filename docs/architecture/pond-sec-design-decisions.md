@@ -114,7 +114,7 @@ strictly correct.
 faster than aggregating every award on every dashboard load.
 
 **What it costs:** the total can in principle drift from the ledger. The
-recalculation query is in `docs/DATA_MODEL.md` if it ever needs fixing.
+recalculation query is in `../database/pond-sec-data-model.md` if it ever needs fixing.
 
 ---
 
