@@ -146,9 +146,12 @@ def _tls_verify(cfg):
 # The integrated app has a console relay (themes.console_relay), which needs a
 # vncproxy ticket and therefore VM.Console on the clones. It is in
 # _VM_PRIVS_CLONES here and must be in the playbook's PondClones role too.
+# Pool.Audit is read-only, and without it Proxmox strips the "pool" field from
+# /cluster/resources (pve-manager, fix #3402), so pool_membership() could never
+# match a VM to its pool and every /vms/<id> grant would be reported as excess.
 _VM_PRIVS_CLONES = frozenset({"VM.Allocate", "VM.Audit", "VM.Config.Network", "VM.PowerMgmt",
-                              "VM.Console"})
-_VM_PRIVS_TEMPLATES = frozenset({"VM.Audit", "VM.Clone"})
+                              "VM.Console", "Pool.Audit"})
+_VM_PRIVS_TEMPLATES = frozenset({"VM.Audit", "VM.Clone", "Pool.Audit"})
 _SDN_ZONE_PRIVS = frozenset({"SDN.Allocate", "SDN.Audit", "SDN.Use"})
 # Refused wherever they appear, even if a path rule would otherwise allow them.
 DANGEROUS_PRIVILEGES = frozenset({

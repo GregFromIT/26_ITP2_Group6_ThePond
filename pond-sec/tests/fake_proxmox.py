@@ -18,16 +18,16 @@ a copy with a privilege added, to exercise the self-check.
 
 import copy
 
-_CLONES = {"VM.Allocate": 1, "VM.Audit": 1, "VM.Config.Network": 1, "VM.PowerMgmt": 1}
+_CLONES = {"VM.Allocate": 1, "VM.Audit": 1, "VM.Config.Network": 1, "VM.PowerMgmt": 1, "Pool.Audit": 1}
 
 MINIMAL_PERMISSIONS = {
     "/": {"Sys.Audit": 0},
     "/sdn": {"SDN.Allocate": 0},
     "/sdn/zones/pondz": {"SDN.Allocate": 1, "SDN.Audit": 1, "SDN.Use": 1},
     "/pool/pond-clones": dict(_CLONES),
-    "/pool/pond-templates": {"VM.Audit": 1, "VM.Clone": 1},
+    "/pool/pond-templates": {"VM.Audit": 1, "VM.Clone": 1, "Pool.Audit": 1},
     "/storage/local-lvm": {"Datastore.AllocateSpace": 0},
-    "/vms/100": {"VM.Audit": 1, "VM.Clone": 1},
+    "/vms/100": {"VM.Audit": 1, "VM.Clone": 1, "Pool.Audit": 1},
 }
 
 _EVERY_PRIVILEGE = [
