@@ -1,0 +1,15 @@
+challenge: wishing-well
+vm_templates:
+- name: Kali-attacker
+  role: attacker
+category: rev
+difficulty: medium
+description: 'Can you find the wish with the flag?
+
+
+  Author: itsc0rg1 (BSidesSF CTF 2024)'
+instructions: 'No server for this one - everything you need is in the handout files.
+
+  Handout files (if any) are on Red Duck in ~/Desktop/wishing-well (also http://10.1.30.10:8000/wishing-well/).'
+flag: CTF{W1sh3s-publish3d-gr4nt3d}
+points: 200

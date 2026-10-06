@@ -1,0 +1,18 @@
+challenge: cant-give-in-secure
+vm_templates:
+- name: Kali-attacker
+  role: attacker
+category: pwn
+difficulty: easy
+description: 'Can you get a shell?
+
+
+  *Note: this is similar to cant-give-in, but the stack is no longer executable*
+
+
+  Author: ron (BSidesSF CTF 2024)'
+instructions: 'Open http://10.1.30.10:31317/ from Red Duck (browser or curl).
+
+  Handout files (if any) are on Red Duck in ~/Desktop/cant-give-in-secure (also http://10.1.30.10:8000/cant-give-in-secure/).'
+flag: CTF{computational-genius-institute}
+points: 100

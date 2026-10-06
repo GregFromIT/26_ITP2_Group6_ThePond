@@ -1,0 +1,18 @@
+challenge: turing-incomplete
+vm_templates:
+- name: Kali-attacker
+  role: attacker
+category: rev
+difficulty: medium
+description: 'We built the same turing machine as `Turing Complete`, but we forgot
+  to load the flag onto the tape this time! Can you retrieve the flag from the filesystem?
+
+
+  In case it helps, we attached a copy of the system''s libc.so library!
+
+
+  Author: ron (BSidesSF CTF 2024)'
+instructions: "From Red Duck's terminal:\n  nc 10.1.30.10 31330\nHandout files (if\
+  \ any) are on Red Duck in ~/Desktop/turing-incomplete (also http://10.1.30.10:8000/turing-incomplete/)."
+flag: CTF{cracking-the-enigma}
+points: 200

@@ -1,0 +1,15 @@
+challenge: opnukeagi
+vm_templates:
+- name: Kali-attacker
+  role: attacker
+category: crypto
+difficulty: medium
+description: 'Comrade, you''re our last chance to stop the AGI. If your mission to
+  infiltrate the nuclear missile silo fails all hope will be lost.
+
+
+  Author: symmetric (BSidesSF CTF 2024)'
+instructions: "From Red Duck's terminal:\n  nc 10.1.30.10 31325\nHandout files (if\
+  \ any) are on Red Duck in ~/Desktop/opnukeagi (also http://10.1.30.10:8000/opnukeagi/)."
+flag: CTF{comrade_agi_kaput}
+points: 200

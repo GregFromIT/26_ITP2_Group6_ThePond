@@ -1,0 +1,15 @@
+challenge: turing-complete
+vm_templates:
+- name: Kali-attacker
+  role: attacker
+category: rev
+difficulty: easy
+description: 'We built a Turing Machine, and put the flag onto the tape. Can you figure
+  out how to work it and get the flag?
+
+
+  Author: ron (BSidesSF CTF 2024)'
+instructions: "From Red Duck's terminal:\n  nc 10.1.30.10 31329\nHandout files (if\
+  \ any) are on Red Duck in ~/Desktop/turing-complete (also http://10.1.30.10:8000/turing-complete/)."
+flag: CTF{rip-1912-1954}
+points: 100

@@ -1,0 +1,14 @@
+challenge: no-tools
+vm_templates:
+- name: Kali-attacker
+  role: attacker
+category: misc
+difficulty: easy
+description: 'The flag is in /home/ctf/flag.txt, but where''d all the tools go???
+
+
+  Author: ron (BSidesSF CTF 2024)'
+instructions: "From Red Duck's terminal:\n  nc 10.1.30.10 31324\nHandout files (if\
+  \ any) are on Red Duck in ~/Desktop/no-tools (also http://10.1.30.10:8000/no-tools/)."
+flag: CTF{where-are-my-tools}
+points: 100

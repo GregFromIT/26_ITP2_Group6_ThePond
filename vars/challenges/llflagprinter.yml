@@ -1,0 +1,16 @@
+challenge: llflagprinter
+vm_templates:
+- name: Kali-attacker
+  role: attacker
+category: misc
+difficulty: easy
+description: 'We''ve gotten the LLVM compilation started for you, now you just need
+  to complete it for your system.
+
+
+  Author: symmetric (BSidesSF CTF 2024)'
+instructions: 'No server for this one - everything you need is in the handout files.
+
+  Handout files (if any) are on Red Duck in ~/Desktop/llflagprinter (also http://10.1.30.10:8000/llflagprinter/).'
+flag: CTF{llvm_a_llm_for_v_enthusiasts}
+points: 100

@@ -1,0 +1,20 @@
+challenge: crossworthy
+vm_templates:
+- name: Kali-attacker
+  role: attacker
+category: misc
+difficulty: medium
+description: 'Solve the crossword in the program (or attached as a .html file) and
+  answer this question:
+
+
+  What exploit technique can be found sliding down the puzzle in the circles? Flag
+  is the answer in the form `CTF{___-____}` (all lowercase).
+
+
+  Author: ron (BSidesSF CTF 2024)'
+instructions: 'No server for this one - everything you need is in the handout files.
+
+  Handout files (if any) are on Red Duck in ~/Desktop/crossworthy (also http://10.1.30.10:8000/crossworthy/).'
+flag: CTF{nop-sled}
+points: 200

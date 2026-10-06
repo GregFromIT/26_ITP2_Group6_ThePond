@@ -1,0 +1,17 @@
+challenge: truthescrow
+vm_templates:
+- name: Kali-attacker
+  role: attacker
+category: crypto
+difficulty: medium
+description: 'Citizen, it has come time to register with the Ministry Of Truth!
+
+
+  (There are two flags for this challenge. truthescrow-1''s flag is the pq key)
+
+
+  Author: symmetric (BSidesSF CTF 2024)'
+instructions: "From Red Duck's terminal:\n  nc 10.1.30.10 31328\nHandout files (if\
+  \ any) are on Red Duck in ~/Desktop/truthescrow (also http://10.1.30.10:8000/truthescrow/)."
+flag: CTF{we_are_the_oprah_of_private_key_bits}
+points: 200

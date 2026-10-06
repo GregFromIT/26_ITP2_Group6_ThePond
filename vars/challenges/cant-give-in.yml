@@ -1,0 +1,19 @@
+challenge: cant-give-in
+vm_templates:
+- name: Kali-attacker
+  role: attacker
+category: pwn
+difficulty: easy
+description: 'Can you get a shell?
+
+
+  *Note: the binary should have an executable stack and minimal hardening, the goal
+  is RCE*
+
+
+  Author: ron (BSidesSF CTF 2024)'
+instructions: 'Open http://10.1.30.10:31316/ from Red Duck (browser or curl).
+
+  Handout files (if any) are on Red Duck in ~/Desktop/cant-give-in (also http://10.1.30.10:8000/cant-give-in/).'
+flag: CTF{certified-genuine-instructions}
+points: 100

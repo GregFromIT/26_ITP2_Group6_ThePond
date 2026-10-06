@@ -1,0 +1,14 @@
+challenge: cyberdyneadc
+vm_templates:
+- name: Kali-attacker
+  role: attacker
+category: forensics
+difficulty: medium
+description: 'We need your help to recover data on this badly scratched disk.
+
+
+  Author: symmetric (BSidesSF CTF 2024)'
+instructions: "From Red Duck's terminal:\n  nc 10.1.30.10 31321\nHandout files (if\
+  \ any) are on Red Duck in ~/Desktop/cyberdyneadc (also http://10.1.30.10:8000/cyberdyneadc/)."
+flag: CTF{save_humanity}
+points: 200

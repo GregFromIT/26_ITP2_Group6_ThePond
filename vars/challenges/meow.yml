@@ -1,0 +1,14 @@
+challenge: meow
+vm_templates:
+- name: Kali-attacker
+  role: attacker
+category: misc
+difficulty: easy
+description: 'Terminal Challenges Welcome
+
+
+  Author: Daniel Pendolinio (BSidesSF CTF 2024)'
+instructions: "From Red Duck's terminal:\n  nc 10.1.30.10 31323\nHandout files (if\
+  \ any) are on Red Duck in ~/Desktop/meow (also http://10.1.30.10:8000/meow/)."
+flag: CTF{CannotStopMeMeow}
+points: 100

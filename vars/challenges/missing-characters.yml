@@ -1,0 +1,13 @@
+challenge: missing-characters
+vm_templates:
+- name: Kali-attacker
+  role: attacker
+category: crypto
+difficulty: medium
+description: "Can you read between the lines?  \n\nFlag is the answer in the form\
+  \ `CTF{----_-------_---_-----}`.\n\nAuthor: ansh (BSidesSF CTF 2024)"
+instructions: 'No server for this one - everything you need is in the handout files.
+
+  Handout files (if any) are on Red Duck in ~/Desktop/missing-characters (also http://10.1.30.10:8000/missing-characters/).'
+flag: CTF{re4d_betw33n_th3_l!n3$}
+points: 200

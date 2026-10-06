@@ -1,0 +1,17 @@
+challenge: truthescrow-2
+vm_templates:
+- name: Kali-attacker
+  role: attacker
+category: crypto
+difficulty: medium
+description: 'Citizen, it has come time to register with the Ministry Of Truth!
+
+
+  (There are two flags for this challenge. truthescrow-2''s flag is the d key)
+
+
+  Author: symmetric (BSidesSF CTF 2024)'
+instructions: "From Red Duck's terminal:\n  nc 10.1.30.10 31328\nHandout files (if\
+  \ any) are on Red Duck in ~/Desktop/truthescrow-2 (also http://10.1.30.10:8000/truthescrow-2/)."
+flag: CTF{half_a_d_is_too_much_d}
+points: 200

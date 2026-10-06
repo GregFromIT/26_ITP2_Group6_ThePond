@@ -1,0 +1,18 @@
+challenge: lostinthevoid
+vm_templates:
+- name: Kali-attacker
+  role: attacker
+category: forensics
+difficulty: medium
+description: 'In the boundless expanse of the null sea, adrift you stand, gazing out,
+  feeling the weight of an ancient malevolent gaze upon your soul. Drifting ever farther,
+  hope dwindles, swallowed whole by the encroaching tendrils of malevolence that now
+  ensnare you.
+
+
+  Author: symmetric (BSidesSF CTF 2024)'
+instructions: 'No server for this one - everything you need is in the handout files.
+
+  Handout files (if any) are on Red Duck in ~/Desktop/lostinthevoid (also http://10.1.30.10:8000/lostinthevoid/).'
+flag: CTF{in_space_no_one_can_hear_you_scream}
+points: 200

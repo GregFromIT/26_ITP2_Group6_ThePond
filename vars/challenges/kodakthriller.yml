@@ -1,0 +1,18 @@
+challenge: kodakthriller
+vm_templates:
+- name: Kali-attacker
+  role: attacker
+category: crypto
+difficulty: medium
+description: 'A prankster claiming to be "from the future" keeps mailing film negatives
+  to our editor. Can you make any sense of their insanity?
+
+  (note enter flag as CTF{<alllowercasenospaces>})
+
+
+  Author: symmetric & itsc0rg1 (BSidesSF CTF 2024)'
+instructions: 'No server for this one - everything you need is in the handout files.
+
+  Handout files (if any) are on Red Duck in ~/Desktop/kodakthriller (also http://10.1.30.10:8000/kodakthriller/).'
+flag: CTF{thefirstlawofaiisobeyhumans}
+points: 200

@@ -1,0 +1,15 @@
+challenge: aicodebook
+vm_templates:
+- name: Kali-attacker
+  role: attacker
+category: crypto
+difficulty: easy
+description: 'To keep everyone safe from AI we''ve encrypted this image
+
+
+  Author: symmetric (BSidesSF CTF 2024)'
+instructions: 'No server for this one - everything you need is in the handout files.
+
+  Handout files (if any) are on Red Duck in ~/Desktop/aicodebook (also http://10.1.30.10:8000/aicodebook/).'
+flag: CTF{are_my_blocks_showing}
+points: 100

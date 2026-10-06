@@ -1,0 +1,18 @@
+challenge: slay-the-spider
+vm_templates:
+- name: Kali-attacker
+  role: attacker
+category: pwn
+difficulty: medium
+description: 'The AI player thinks they''re so smart, but their hubris will be their
+  downfall! Get a shell and get the flag!
+
+
+  *Note: the flag is loaded into memory for your convenience*
+
+
+  Author: ron (BSidesSF CTF 2024)'
+instructions: "From Red Duck's terminal:\n  nc 10.1.30.10 31327\nHandout files (if\
+  \ any) are on Red Duck in ~/Desktop/slay-the-spider (also http://10.1.30.10:8000/slay-the-spider/)."
+flag: CTF{the-heart-is-defeated}
+points: 200

@@ -1,0 +1,15 @@
+challenge: javai
+vm_templates:
+- name: Kali-attacker
+  role: attacker
+category: forensics
+difficulty: easy
+description: 'Please look over this marketing document on our new JavAI mascot.
+
+
+  Author: symmetric (BSidesSF CTF 2024)'
+instructions: 'No server for this one - everything you need is in the handout files.
+
+  Handout files (if any) are on Red Duck in ~/Desktop/javai (also http://10.1.30.10:8000/javai/).'
+flag: CTF{javai_java_with_100x_ai}
+points: 100

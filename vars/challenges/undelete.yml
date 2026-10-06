@@ -1,0 +1,16 @@
+challenge: undelete
+vm_templates:
+- name: Kali-attacker
+  role: attacker
+category: forensics
+difficulty: easy
+description: 'Try out this file ''undelete'' challenge! It comes with a walkthrough
+  :-)
+
+
+  Author: symmetric (BSidesSF CTF 2024)'
+instructions: 'No server for this one - everything you need is in the handout files.
+
+  Handout files (if any) are on Red Duck in ~/Desktop/undelete (also http://10.1.30.10:8000/undelete/).'
+flag: CTF{144_mb_enough_for_anybody}
+points: 100

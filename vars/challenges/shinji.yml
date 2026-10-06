@@ -1,0 +1,15 @@
+challenge: shinji
+vm_templates:
+- name: Kali-attacker
+  role: attacker
+category: rev
+difficulty: medium
+description: 'You will know, when the time is right
+
+
+  Author: itsc0rg1 (BSidesSF CTF 2024)'
+instructions: 'No server for this one - everything you need is in the handout files.
+
+  Handout files (if any) are on Red Duck in ~/Desktop/shinji (also http://10.1.30.10:8000/shinji/).'
+flag: CTF{1615212000}
+points: 200

@@ -1,0 +1,16 @@
+challenge: redacted
+vm_templates:
+- name: Kali-attacker
+  role: attacker
+category: forensics
+difficulty: easy
+description: 'Don''t worry, we''ve covered up all the secret bits to make this safe
+  to share.
+
+
+  Author: symmetric (BSidesSF CTF 2024)'
+instructions: 'No server for this one - everything you need is in the handout files.
+
+  Handout files (if any) are on Red Duck in ~/Desktop/redacted (also http://10.1.30.10:8000/redacted/).'
+flag: CTF{censor_this}
+points: 100

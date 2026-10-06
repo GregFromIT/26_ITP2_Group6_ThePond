@@ -1,0 +1,15 @@
+challenge: humain
+vm_templates:
+- name: Kali-attacker
+  role: attacker
+category: rev
+difficulty: medium
+description: 'So you you think you''re a human that likes reversing? How about solving
+  for x? Well, now you have to solve for y :-D
+
+
+  Author: symmetric (BSidesSF CTF 2024)'
+instructions: "From Red Duck's terminal:\n  nc 10.1.30.10 31322\nHandout files (if\
+  \ any) are on Red Duck in ~/Desktop/humain (also http://10.1.30.10:8000/humain/)."
+flag: CTF{invertthis!}
+points: 200

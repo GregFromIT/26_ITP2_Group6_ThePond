@@ -1,0 +1,18 @@
+challenge: sgai-3
+vm_templates:
+- name: Kali-attacker
+  role: attacker
+category: forensics
+difficulty: medium
+description: 'This image from the past may hold the key to our future survival if
+  you can find the hidden flag!
+
+  (This is flag 3 of 4)
+
+
+  Author: symmetric (BSidesSF CTF 2024)'
+instructions: 'No server for this one - everything you need is in the handout files.
+
+  Handout files (if any) are on Red Duck in ~/Desktop/sgai-3 (also http://10.1.30.10:8000/sgai-3/).'
+flag: CTF{invisibility_cloak}
+points: 200

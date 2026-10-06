@@ -1,0 +1,18 @@
+challenge: turing-incomplete64
+vm_templates:
+- name: Kali-attacker
+  role: attacker
+category: rev
+difficulty: medium
+description: 'This is the same as Turing Complete, but compiled as 64-bit instead
+  of 32. Good luck!
+
+
+  In case it helps, we attached a copy of the system''s libc.so library!
+
+
+  Author: ron (BSidesSF CTF 2024)'
+instructions: "From Red Duck's terminal:\n  nc 10.1.30.10 31331\nHandout files (if\
+  \ any) are on Red Duck in ~/Desktop/turing-incomplete64 (also http://10.1.30.10:8000/turing-incomplete64/)."
+flag: CTF{hero}
+points: 200

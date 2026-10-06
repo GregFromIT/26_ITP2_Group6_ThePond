@@ -1,0 +1,23 @@
+challenge: safer-streets
+vm_templates:
+- name: Kali-attacker
+  role: attacker
+category: web
+difficulty: medium
+description: 'For the safety of all, we''ve installed brand new license-plate scanners
+  throughout the city! Check it out, but no speeding!
+
+
+  *Note 1: If you gain access to a binary, it''s compiled on `debian:bookworm` with
+  the libraries `libmagickwand-dev`, `libmagickcore-dev`, and `libzbar-dev`*
+
+
+  *Note 2: Run `/home/ctf/print-flag` to get the flag.
+
+
+  Author: ron (BSidesSF CTF 2024)'
+instructions: 'Open http://10.1.30.10:31326/ from Red Duck (browser or curl).
+
+  Handout files (if any) are on Red Duck in ~/Desktop/safer-streets (also http://10.1.30.10:8000/safer-streets/).'
+flag: CTF{show-me-your-best-images}
+points: 200

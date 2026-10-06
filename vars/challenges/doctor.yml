@@ -1,0 +1,13 @@
+challenge: doctor
+vm_templates:
+- name: Kali-attacker
+  role: attacker
+category: forensics
+difficulty: medium
+description: "This doc seems to be hiding something. Can you find what's hidden? \n\
+  \nFlag is in the form `CTF{-----_----_----}`.\n\nAuthor: ansh (BSidesSF CTF 2024)"
+instructions: 'No server for this one - everything you need is in the handout files.
+
+  Handout files (if any) are on Red Duck in ~/Desktop/doctor (also http://10.1.30.10:8000/doctor/).'
+flag: CTF{st0ck_cut3_p1c5}
+points: 200
