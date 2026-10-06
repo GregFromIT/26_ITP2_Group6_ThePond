@@ -1,0 +1,17 @@
+challenge: shadow-the-hedgedog
+category: web
+difficulty: easy
+description: |
+  Did you know that Sonic the Hedgehog's favourite programming language is Kotlin?
+
+  Author: wednesday
+instructions: |
+  Open the console to use your attacker machine.
+  Open the challenge:  http://10.1.30.10:31311/
+  Download:  curl -O http://10.1.30.10:8000/shadow-the-hedgedog/publish.tar.gz
+  Flag format: skbdg{...}
+vm_templates:
+- name: Kali-attacker
+  role: attacker
+flag: skbdg{i_am_th3_ultimat3_lif3form_woof!}
+points: 100

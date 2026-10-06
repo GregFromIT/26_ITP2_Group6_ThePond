@@ -24,7 +24,7 @@ import hashlib
 
 from db.orm import db
 from db.challenge_models import Challenge
-from db.VMs_models import ChallengeFlag, VMTemplate
+from db.VMs_models import ChallengeFlag
 from db.runtime_models import ChallengeInstance
 from db.scoring_models import FlagSubmission, UserSolve
 from db.user_models import Role, User
@@ -57,10 +57,7 @@ def submit_flag(user_id: int, challenge_id: int, instance_id: int, raw_flag: str
 
     The order here matters:
 
-      1. look for a matching flag IN THIS CHALLENGE (joined through
-         VMTemplate, since ChallengeFlag belongs to a template, not
-         directly to a challenge - a multi-VM challenge's flags all still
-         resolve back to the one challenge_id via their template)
+      1. look for a matching flag owned directly by this challenge
       2. log the attempt either way - right and wrong both count as "flags
          played" on the leaderboards
       3. check the award ledger (UserSolve) before paying out
@@ -74,9 +71,8 @@ def submit_flag(user_id: int, challenge_id: int, instance_id: int, raw_flag: str
     """
     match = (
         db.session.query(ChallengeFlag)
-        .join(VMTemplate, ChallengeFlag.template_id == VMTemplate.template_id)
         .filter(
-            VMTemplate.challenge_id == challenge_id,
+            ChallengeFlag.challenge_id == challenge_id,
             ChallengeFlag.flag_hash == hash_flag(raw_flag),
             ChallengeFlag.is_active.is_(True),
         )
@@ -119,15 +115,13 @@ def challenge_progress(user_id: int, challenge_id: int):
     """Flags captured vs available for one user in one challenge."""
     total = (
         db.session.query(db.func.count(ChallengeFlag.flag_id), db.func.coalesce(db.func.sum(ChallengeFlag.points), 0))
-        .join(VMTemplate, ChallengeFlag.template_id == VMTemplate.template_id)
-        .filter(VMTemplate.challenge_id == challenge_id, ChallengeFlag.is_active.is_(True))
+        .filter(ChallengeFlag.challenge_id == challenge_id, ChallengeFlag.is_active.is_(True))
         .one()
     )
     mine = (
         db.session.query(db.func.count(UserSolve.solve_id), db.func.coalesce(db.func.sum(UserSolve.awarded_points), 0))
         .join(ChallengeFlag, UserSolve.flag_id == ChallengeFlag.flag_id)
-        .join(VMTemplate, ChallengeFlag.template_id == VMTemplate.template_id)
-        .filter(VMTemplate.challenge_id == challenge_id, UserSolve.user_id == user_id)
+        .filter(ChallengeFlag.challenge_id == challenge_id, UserSolve.user_id == user_id)
         .one()
     )
     flags_total, points_total = total
@@ -197,8 +191,7 @@ def category_leaderboard(category: str, limit: int = 10):
         solves = (
             db.session.query(UserSolve)
             .join(ChallengeFlag, UserSolve.flag_id == ChallengeFlag.flag_id)
-            .join(VMTemplate, ChallengeFlag.template_id == VMTemplate.template_id)
-            .join(Challenge, VMTemplate.challenge_id == Challenge.challenge_id)
+                .join(Challenge, ChallengeFlag.challenge_id == Challenge.challenge_id)
             .filter(UserSolve.user_id == user.user_id, Challenge.category == category)
             .all()
         )
@@ -254,8 +247,7 @@ def category_challenge_matrix(category: str, limit: int = 25):
         solves = (
             db.session.query(UserSolve, Challenge.challenge_id)
             .join(ChallengeFlag, UserSolve.flag_id == ChallengeFlag.flag_id)
-            .join(VMTemplate, ChallengeFlag.template_id == VMTemplate.template_id)
-            .join(Challenge, VMTemplate.challenge_id == Challenge.challenge_id)
+                .join(Challenge, ChallengeFlag.challenge_id == Challenge.challenge_id)
             .filter(UserSolve.user_id == user.user_id, Challenge.category == category)
             .all()
         )

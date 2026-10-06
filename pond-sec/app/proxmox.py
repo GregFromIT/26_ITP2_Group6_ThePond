@@ -146,9 +146,12 @@ def _tls_verify(cfg):
 # The integrated app has a console relay (themes.console_relay), which needs a
 # vncproxy ticket and therefore VM.Console on the clones. It is in
 # _VM_PRIVS_CLONES here and must be in the playbook's PondClones role too.
+# Pool.Audit is read-only, and without it Proxmox strips the "pool" field from
+# /cluster/resources (pve-manager, fix #3402), so pool_membership() could never
+# match a VM to its pool and every /vms/<id> grant would be reported as excess.
 _VM_PRIVS_CLONES = frozenset({"VM.Allocate", "VM.Audit", "VM.Config.Network", "VM.PowerMgmt",
-                              "VM.Console"})
-_VM_PRIVS_TEMPLATES = frozenset({"VM.Audit", "VM.Clone"})
+                              "VM.Console", "Pool.Audit"})
+_VM_PRIVS_TEMPLATES = frozenset({"VM.Audit", "VM.Clone", "Pool.Audit"})
 _SDN_ZONE_PRIVS = frozenset({"SDN.Allocate", "SDN.Audit", "SDN.Use"})
 # Refused wherever they appear, even if a path rule would otherwise allow them.
 DANGEROUS_PRIVILEGES = frozenset({
@@ -293,9 +296,11 @@ def _client():
 
 def clone_and_start(template_vmid: int, node: str = None, label: str = "challenge",
                      *, instance_id: int, template_id: int, vnet: str | None = None,
-                     static_ip: str | None = None, gateway: str | None = None) -> Clone:
+                     static_ip: str | None = None, gateway: str | None = None,
+                     challenge_template_id: int | None = None,
+                     firstboot_command: str | None = None) -> Clone:
     """
-    static_ip: pass the launching challenge's VMTemplate.static_ip to bake
+    static_ip: pass the launching challenge's ChallengeTemplate.static_ip to bake
     a static network config into this clone before boot (see provisioner's
     inject_instance_network()). None skips it entirely - the clone boots
     with whatever the template's own disk already has.
@@ -319,12 +324,14 @@ def clone_and_start(template_vmid: int, node: str = None, label: str = "challeng
     _refuse_protected(template_vmid)
     client = _client()
     _check_token_privileges(client)
-    proxmox_host = cfg["PROXMOX_HOST"] if static_ip is not None else None
+    proxmox_host = cfg["PROXMOX_HOST"] if (static_ip is not None or firstboot_command is not None) else None
     return _core.clone_and_start(
         client, template_vmid, node, label=label,
         full_clone=cfg["PROXMOX_FULL_CLONE"], storage=cfg["PROXMOX_STORAGE"],
         instance_id=instance_id, template_id=template_id, vnet=vnet,
+        challenge_template_id=challenge_template_id,
         static_ip=static_ip, proxmox_host=proxmox_host, gateway=gateway,
+        firstboot_command=firstboot_command,
         pool=cfg["PROXMOX_POOL"],   # the only pool the token can create VMs in
     )
 

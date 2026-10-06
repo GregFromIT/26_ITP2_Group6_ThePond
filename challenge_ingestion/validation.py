@@ -172,10 +172,10 @@ def validate_submission(manifest_bytes, files, *, submission_id, challenge_type,
                 add("UNKNOWN_VM_ROLE", "Network rule refers to an undefined VM role.", f"/network_rules/{i}/{field}")
     flag_names, sequences, flag_hashes = set(), set(), set()
     for i, flag in enumerate(manifest["flags"]):
-        if flag["vm_role"] not in roles:
+        if "vm_role" in flag and flag["vm_role"] not in roles:
             add("UNKNOWN_VM_ROLE", "Flag refers to an undefined VM role.", f"/flags/{i}/vm_role")
-        name = (flag["vm_role"], flag["name"])
-        seq = (flag["vm_role"], flag.get("sequence_number"))
+        name = (flag.get("vm_role"), flag["name"])
+        seq = (flag.get("vm_role"), flag.get("sequence_number"))
         if name in flag_names or flag["flag_hash"] in flag_hashes or (seq[1] is not None and seq in sequences):
             add("DUPLICATE_FLAG", "Flag names/sequences within a VM and flag hashes within a challenge must be unique.", f"/flags/{i}")
         flag_names.add(name)

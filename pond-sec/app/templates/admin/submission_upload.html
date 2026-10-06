@@ -1,7 +1,7 @@
 {% extends "base.html" %}
 {% block title %}New challenge submission · Pond Sec{% endblock %}
 {% block content %}<section class="form-page"><div class="form-card">
-<h1>New challenge submission</h1><p>Choose the challenge definition JSON file. You can add its VM images on the next page.</p>
+<h1>New challenge submission</h1><p>Choose the challenge definition JSON file. Add VM images on the next page when required. Docker-backed challenges reference an existing workstation and Docker challenge key; offline challenges use physical materials.</p>
 <p>Use the supplied package examples. The definition includes student instructions, VM requirements and any scoring information.</p>
 <form method="post" enctype="multipart/form-data" action="{{ url_for('uploads.create') }}">
 <input type="hidden" name="_csrf" value="{{ csrf_token() }}">

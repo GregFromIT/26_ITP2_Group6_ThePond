@@ -1,0 +1,19 @@
+challenge: curveball
+category: crypto
+difficulty: medium
+description: |
+  take me out to the ballll game
+
+  take me out with the crowd!
+
+  Author: wednesday
+instructions: |
+  Open the console to use your attacker machine.
+  Connect to the challenge:  nc 10.1.30.10 31308
+  Download:  curl -O http://10.1.30.10:8000/curveball/chall.py
+  Flag format: skbdg{...}
+vm_templates:
+- name: Kali-attacker
+  role: attacker
+flag: skbdg{a_bs1dh_param_chall3ng3_at_bs1d3s_canb3rra?}
+points: 200

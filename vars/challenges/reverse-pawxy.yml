@@ -1,0 +1,17 @@
+challenge: reverse-pawxy
+category: web
+difficulty: easy
+description: |
+  It sure is nice to be able to check the health of my API without exposing any of my secrets!
+
+  Author: chsh
+instructions: |
+  Open the console to use your attacker machine.
+  Open the challenge:  http://10.1.30.10:31313/
+  Download:  curl -O http://10.1.30.10:8000/reverse-pawxy/reverse-pawxy.zip
+  Flag format: skbdg{...}
+vm_templates:
+- name: Kali-attacker
+  role: attacker
+flag: skbdg{0h_n0_my_paw_s3cre7s!}
+points: 100

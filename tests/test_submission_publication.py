@@ -4,6 +4,7 @@ import pytest
 from sqlalchemy import select, event, func
 from test_upload_routes import env, client
 from test_submission_review import ready, review
+from db.challenge_template_models import ChallengeTemplate
 from db import db, ChallengeSubmission, SubmissionJob, SubmissionFile, Challenge, VMTemplate, ChallengeFlag, NotificationOutbox
 from challenge_ingestion.publication import PublicationWorker, PublicationError
 from challenge_ingestion.storage import QuarantineStorage
@@ -64,7 +65,10 @@ def test_publication_atomic_and_idempotent(approved):
     challenge = db.session.get(Challenge,row.published_challenge_id)
     assert challenge.title == row.title and challenge.status == 'published'
     template = db.session.scalar(select(VMTemplate))
-    assert template.challenge_id == challenge.challenge_id and template.proxmox_template_vmid == 1200
+    assert template.proxmox_template_vmid == 1200
+    assignment = db.session.scalar(select(ChallengeTemplate))
+    assert assignment.challenge_id == challenge.challenge_id and assignment.template_id == template.template_id
+    assert assignment.vm_role == "target"
     flag = db.session.scalar(select(ChallengeFlag))
     assert flag.template_id == template.template_id and flag.points == 100
     assert db.session.scalar(select(func.count()).select_from(Challenge)) == 1
@@ -192,8 +196,8 @@ def test_existing_live_vmid_blocks_preparation(approved):
     app, identifier, root, worker, digest, adapter=approved
     other=Challenge(title='Existing',description='existing',instructions='existing',status='published')
     db.session.add(other);db.session.flush()
-    db.session.add(VMTemplate(challenge_id=other.challenge_id,template_name='Existing',
-        proxmox_template_vmid=1200,proxmox_node='test-node',vm_role='existing'))
+    db.session.add(VMTemplate(template_name='Existing',
+        proxmox_template_vmid=1200,proxmox_node='test-node'))
     db.session.commit()
     job=enqueue(approved);worker.run_once()
     db.session.remove()

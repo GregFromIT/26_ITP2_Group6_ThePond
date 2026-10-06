@@ -27,6 +27,7 @@ from db.orm import db
 from db.user_models import Role, User, UserCredential
 from db.challenge_models import Challenge, NetworkRule
 from db.VMs_models import VMTemplate, ChallengeFlag
+from db.challenge_template_models import ChallengeTemplate
 from db.runtime_models import ChallengeInstance, VMInstance, InstanceJob
 from db.scoring_models import FlagSubmission, UserSolve
 from db.audit_models import AuditLog
@@ -67,8 +68,8 @@ def seed_challenges_from_yaml():
            if challenge is None:
                challenge = Challenge(
                    title=slug,
-                   description=f"Seeded from vars/challenges/{path.name}",
-                   instructions="See the challenge brief for connection details.",
+                   description=cfg.get("description", f"Seeded from vars/challenges/{path.name}"),
+                   instructions=cfg.get("instructions", "See the challenge brief for connection details."),
                    category=cfg.get("category", "general"),
                    difficulty=cfg.get("difficulty"),
                    status="published",
@@ -89,16 +90,20 @@ def seed_challenges_from_yaml():
                ).scalar_one_or_none()
                if template is None:
                    template = VMTemplate(
-                       challenge_id=challenge.challenge_id,
                        template_name=template_name,
                        proxmox_template_vmid=template_vmid,
                        proxmox_node=node,
-                       vm_role=role,
-                       static_ip=static_ip,
                    )
                    db.session.add(template)
                    db.session.commit()
                    print(f"    + vm_template: {template_name} (vmid {template_vmid}, role={role})")
+
+               assignment = db.session.execute(db.select(ChallengeTemplate).filter_by(
+                   challenge_id=challenge.challenge_id, vm_role=role)).scalar_one_or_none()
+               if assignment is None:
+                   db.session.add(ChallengeTemplate(challenge_id=challenge.challenge_id,
+                       template_id=template.template_id, vm_role=role, static_ip=static_ip))
+                   db.session.commit()
 
                flag_plain = cfg.get("flag")
                if flag_plain:
@@ -110,10 +115,11 @@ def seed_challenges_from_yaml():
                         )
                     flag_hash = _hash_flag(flag_plain)
                     existing_flag = db.session.execute(
-                        db.select(ChallengeFlag).filter_by(template_id=template.template_id, flag_hash=flag_hash)
+                        db.select(ChallengeFlag).filter_by(challenge_id=challenge.challenge_id, template_id=template.template_id, flag_hash=flag_hash)
                     ).scalar_one_or_none()
                     if existing_flag is None:
                         db.session.add(ChallengeFlag(
+                            challenge_id=challenge.challenge_id,
                             template_id=template.template_id,
                             flag_name=f"{slug}-flag",
                             flag_hash=flag_hash,

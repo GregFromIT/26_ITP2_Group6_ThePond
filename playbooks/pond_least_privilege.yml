@@ -86,8 +86,10 @@
       - VM.Backup
 
     pond_roles:
-      PondClones: [VM.Allocate, VM.Audit, VM.Config.Network, VM.PowerMgmt, VM.Console]
-      PondTemplates: [VM.Audit, VM.Clone]
+      # Pool.Audit: without it /cluster/resources hides each VM's pool
+      # (pve-manager fix #3402), and the app's privilege self-check fails.
+      PondClones: [VM.Allocate, VM.Audit, VM.Config.Network, VM.PowerMgmt, VM.Console, Pool.Audit]
+      PondTemplates: [VM.Audit, VM.Clone, Pool.Audit]
       PondStorage: [Datastore.AllocateSpace]
       PondSDN: [SDN.Allocate, SDN.Audit, SDN.Use]
       PondSDNApply: [SDN.Allocate]

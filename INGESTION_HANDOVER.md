@@ -1,5 +1,9 @@
 # Challenge upload implementation — review entry point
 
+For the Redduck/container-lab extension and its schema migration, start with
+`CONTAINER_LAB_SETUP.md` and `DOCKER_ADAPTER_CONTRACT.md`. The original upload
+workflow below still applies; VM preparation applies to VM uploads only.
+
 The upload button calls routes in `pond-sec/app/uploads.py`. Those routes use
 `challenge_ingestion/intake.py` to store a draft and quarantine uploaded bytes.
 Workers validate submitted revisions; sysadmins review and queue publication.
@@ -18,14 +22,16 @@ All records use the existing `pond` database. There is no second empty database.
 | notification_outbox | Durable in-app notifications and read status | submission; recipient |
 | audit_logs (existing) | Validation, review and publication evidence | actor; target |
 | challenges (existing) | Published challenge metadata | creator |
-| vm_templates (existing) | Approved/imported template identities and VM resources | challenge |
-| challenge_flags (existing) | Hashed flags and scoring | template |
+| vm_templates (existing) | Approved/imported reusable template identities and VM resources | challenge_templates |
+| challenge_templates (Redduck extension) | Challenge-specific template assignments | challenge; template |
+| challenge_flags (existing) | Hashed flags and scoring | challenge; optional template |
 | network_rules (existing) | Requested inter-VM rules | challenge |
 
 `UPLOAD_SCHEMA.sql` is generated reference DDL for the five new tables and indexes,
 not a migration to blindly apply to a populated database. Models are canonical.
 Use the initialization/check procedure in `DATABASE_INITIALIZATION_SETUP.md`.
-The latest publication work adds no further tables or migration.
+The Redduck extension adds `challenge_templates` and updates existing tables;
+its installation guide includes the migration procedure.
 
 ## Lifecycle
 

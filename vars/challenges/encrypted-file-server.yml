@@ -1,0 +1,18 @@
+challenge: encrypted-file-server
+category: pwn
+difficulty: medium
+description: |
+  BSides Canberra CTF wouldn't be complete without a [generically](https://gitlab.com/cybears/fall-of-cybeartron/-/tree/master/challenges/bsides/2020/pwn/daas)
+  [named](https://gitlab.com/cybears/chals-2023/-/tree/main/chals/pwn/pwn-300-secureshell) crypto pwn challenge.
+
+  Author: joseph
+instructions: |
+  Open the console to use your attacker machine.
+  Connect to the challenge:  nc 10.1.30.10 31302
+  Download:  curl -O http://10.1.30.10:8000/encrypted-file-server/encrypted-file-server.tar.gz
+  Flag format: skbdg{...}
+vm_templates:
+- name: Kali-attacker
+  role: attacker
+flag: skbdg{m3m0ry_CoRrYPTiOn_is_th3_b3st_k1nd_0f_mem0ry_corrupt10n}
+points: 200

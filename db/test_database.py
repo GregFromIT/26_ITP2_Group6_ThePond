@@ -29,6 +29,7 @@ from db.user_models import (
 
 from db.challenge_models import Challenge
 
+from db.challenge_template_models import ChallengeTemplate
 from db.VMs_models import (
     VMTemplate,
     ChallengeFlag,
@@ -307,29 +308,21 @@ def run_tests():
             )
 
             attacker_template = VMTemplate(
-                challenge_id=challenge.challenge_id,
                 template_name=f"Test Kali {marker}",
                 proxmox_template_vmid=base_template_vmid,
                 proxmox_node="test-node",
-                vm_role="attacker",
                 cpu_cores=2,
                 memory_mb=2048,
-                boot_order=1,
-                is_user_accessible=True
             )
 
             victim_template = VMTemplate(
-                challenge_id=challenge.challenge_id,
                 template_name=f"Test Victim {marker}",
                 proxmox_template_vmid=(
                     base_template_vmid + 1
                 ),
                 proxmox_node="test-node",
-                vm_role="victim",
                 cpu_cores=2,
                 memory_mb=2048,
-                boot_order=2,
-                is_user_accessible=True
             )
 
             db.session.add_all([
@@ -339,7 +332,14 @@ def run_tests():
 
             db.session.commit()
 
-            assert len(challenge.vm_templates) == 2
+            db.session.add_all([
+                ChallengeTemplate(challenge_id=challenge.challenge_id, template_id=attacker_template.template_id,
+                                  vm_role="attacker", boot_order=1),
+                ChallengeTemplate(challenge_id=challenge.challenge_id, template_id=victim_template.template_id,
+                                  vm_role="victim", boot_order=2),
+            ])
+            db.session.commit()
+            assert len(challenge.template_assignments) == 2
 
             passed_test(6)
 
@@ -365,6 +365,7 @@ def run_tests():
             ).hexdigest()
 
             flag = ChallengeFlag(
+                challenge_id=challenge.challenge_id,
                 template_id=victim_template.template_id,
                 flag_name="Relational Test Flag",
                 flag_hash=flag_hash,
@@ -663,16 +664,10 @@ def run_tests():
                 "Confirm a VM template cannot reference a nonexistent challenge"
             )
 
-            invalid_template = VMTemplate(
+            invalid_template = ChallengeTemplate(
                 challenge_id=999999999,
-                template_name=(
-                    f"Invalid Template {marker}"
-                ),
-                proxmox_template_vmid=(
-                    base_template_vmid + 100
-                ),
-                proxmox_node="test-node",
-                vm_role="invalid"
+                template_id=attacker_template.template_id,
+                vm_role="invalid",
             )
 
             db.session.add(invalid_template)

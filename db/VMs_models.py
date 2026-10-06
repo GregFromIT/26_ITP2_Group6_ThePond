@@ -3,17 +3,8 @@ db/VMs_models.py
 
 VM template and flag models for The Pond database.
 
-Relationships:
-
-challenges
-  1
-  |
-  N
-vm_templates
-  1
-  |
-  N
-challenge_flags
+Challenges share reusable VM templates through challenge_templates.
+Flags belong to challenges, with an optional source-template reference.
 """
 
 from datetime import datetime, timezone
@@ -39,14 +30,6 @@ class VMTemplate(db.Model):
         autoincrement=True
     )
 
-    challenge_id: Mapped[int] = mapped_column(
-        ForeignKey(
-            "challenges.challenge_id",
-            ondelete="CASCADE"
-        ),
-        nullable=False
-    )
-
     template_name: Mapped[str] = mapped_column(
         String(100),
         nullable=False
@@ -68,11 +51,6 @@ class VMTemplate(db.Model):
         nullable=True
     )
 
-    vm_role: Mapped[str] = mapped_column(
-        String(50),
-        nullable=False
-    )
-
     cpu_cores: Mapped[int] = mapped_column(
         Integer,
         nullable=False,
@@ -90,33 +68,6 @@ class VMTemplate(db.Model):
         nullable=True
     )
     
-    static_ip: Mapped[Optional[str]] = mapped_column(
-        String(45),
-        nullable=True
-    )
-
-    boot_order: Mapped[int] = mapped_column(
-        Integer,
-        nullable=False,
-        default=1
-    )
-
-    hostname_prefix: Mapped[Optional[str]] = mapped_column(
-        String(50),
-        nullable=True
-    )
-
-    network_name: Mapped[Optional[str]] = mapped_column(
-        String(100),
-        nullable=True
-    )
-
-    is_user_accessible: Mapped[bool] = mapped_column(
-        Boolean,
-        nullable=False,
-        default=True
-    )
-
     is_active: Mapped[bool] = mapped_column(
         Boolean,
         nullable=False,
@@ -129,19 +80,18 @@ class VMTemplate(db.Model):
         default=utc_now
     )
 
-    challenge: Mapped["Challenge"] = relationship(
-        back_populates="vm_templates"
-    )
+    assignments: Mapped[list["ChallengeTemplate"]] = relationship(back_populates="template")
 
     flags: Mapped[list["ChallengeFlag"]] = relationship(
-        back_populates="vm_template",
-        cascade="all, delete-orphan"
-    )
+        back_populates="vm_template", passive_deletes=True)
 
 
 class ChallengeFlag(db.Model):
     __bind_key__ = "pond"
     __tablename__ = "challenge_flags"
+    challenge_id: Mapped[int] = mapped_column(
+        ForeignKey("challenges.challenge_id", ondelete="CASCADE"), nullable=False, index=True)
+    challenge: Mapped["Challenge"] = relationship()
 
     flag_id: Mapped[int] = mapped_column(
         Integer,
@@ -149,12 +99,12 @@ class ChallengeFlag(db.Model):
         autoincrement=True
     )
 
-    template_id: Mapped[int] = mapped_column(
+    template_id: Mapped[Optional[int]] = mapped_column(
         ForeignKey(
             "vm_templates.template_id",
-            ondelete="CASCADE"
+            ondelete="SET NULL"
         ),
-        nullable=False
+        nullable=True
     )
 
     flag_name: Mapped[str] = mapped_column(
@@ -189,7 +139,6 @@ class ChallengeFlag(db.Model):
         default=utc_now
     )
 
-    vm_template: Mapped["VMTemplate"] = relationship(
+    vm_template: Mapped[Optional["VMTemplate"]] = relationship(
         back_populates="flags"
     )
-

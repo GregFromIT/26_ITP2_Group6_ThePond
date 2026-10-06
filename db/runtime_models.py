@@ -47,6 +47,12 @@ def utc_now():
 class ChallengeInstance(db.Model):
     __bind_key__ = "pond"
     __tablename__ = "challenge_instances"
+    # Capture the launch key so title/config changes do not change a running session.
+    docker_challenge_key: Mapped[Optional[str]] = mapped_column(String(160))
+    docker_operation_key: Mapped[Optional[str]] = mapped_column(String(100), unique=True)
+    docker_session_ref: Mapped[Optional[str]] = mapped_column(String(255))
+    docker_status: Mapped[str] = mapped_column(String(30), nullable=False, default="not_requested", server_default="not_requested")
+    docker_error: Mapped[Optional[str]] = mapped_column(Text)
 
     instance_id: Mapped[int] = mapped_column(
         Integer,
@@ -144,6 +150,9 @@ class ChallengeInstance(db.Model):
 class VMInstance(db.Model):
     __bind_key__ = "pond"
     __tablename__ = "vm_instances"
+    challenge_template_id: Mapped[Optional[int]] = mapped_column(
+        ForeignKey("challenge_templates.challenge_template_id", ondelete="SET NULL"))
+    template_assignment: Mapped[Optional["ChallengeTemplate"]] = relationship()
 
     vm_instance_id: Mapped[int] = mapped_column(
         Integer,

@@ -70,6 +70,8 @@ class Config:
     INGESTION_VERIFY_TEMPLATE = None
     INGESTION_INSPECT_IMAGE = None
     INGESTION_PUBLICATION_ADAPTER = None
+    # Trusted integration object; the Docker server implementation is separate.
+    CONTAINER_LAB_ADAPTER = None
     MAX_FIELD_LENGTH = _int("MAX_FIELD_LENGTH", 200)
 
     FORCE_HTTPS = _bool("FORCE_HTTPS", IS_PRODUCTION)
@@ -120,6 +122,12 @@ class Config:
     # 308 on 2026-09-16 - omitting it let a clone answer ARP but drop every
     # reply, since it had no route out.
     PROXMOX_LAB_GATEWAY = os.environ.get("PROXMOX_LAB_GATEWAY", "10.1.20.1")
+
+    # Clones of this template (Red Duck) download their challenge's handout
+    # files from the Docker host's file server on first boot. Empty disables it.
+    POND_HANDOUT_TEMPLATE = os.environ.get("POND_HANDOUT_TEMPLATE", "Kali-attacker")
+    POND_HANDOUT_BASE_URL = os.environ.get("POND_HANDOUT_BASE_URL", "http://10.1.30.10:8000")
+    POND_HANDOUT_USER = os.environ.get("POND_HANDOUT_USER", "kali")
 
     # Certificate verification is ON everywhere. Without it anyone on the path to
     # the hypervisor can impersonate it and capture the API token. 0 is refused
