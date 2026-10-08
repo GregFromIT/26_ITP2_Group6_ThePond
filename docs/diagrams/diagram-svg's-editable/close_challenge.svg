@@ -1,0 +1,58 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 800 820" width="800" height="820" font-family="Helvetica, Arial, sans-serif">
+  <defs>
+    <marker id="arrow" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="8" markerHeight="8" orient="auto-start-reverse">
+      <path d="M0,0 L10,5 L0,10 z" fill="#2f6f5e"/>
+    </marker>
+  </defs>
+
+  <rect width="800" height="820" fill="#ffffff"/>
+
+  <text x="400" y="44" text-anchor="middle" font-size="26" font-weight="bold" fill="#222">Close Challenge</text>
+
+  <!-- Lanes -->
+  <g fill="#f4f7f6" stroke="#2f6f5e" stroke-width="2">
+    <rect x="60"  y="70" width="180" height="720" rx="24"/>
+    <rect x="310" y="70" width="180" height="720" rx="24"/>
+    <rect x="560" y="70" width="180" height="720" rx="24"/>
+  </g>
+  <g font-size="20" font-weight="bold" fill="#222" text-anchor="middle">
+    <text x="150" y="104">user</text>
+    <text x="400" y="104">db (+ code)</text>
+    <text x="650" y="104">prox</text>
+  </g>
+
+  <!-- Edges -->
+  <g stroke="#2f6f5e" stroke-width="2" fill="none" marker-end="url(#arrow)">
+    <line x1="182" y1="150" x2="366" y2="150"/>   <!-- 1 -> 2 -->
+    <line x1="400" y1="170" x2="400" y2="228"/>   <!-- 2 -> 3 -->
+    <line x1="432" y1="260" x2="616" y2="342"/>   <!-- 3 -> 4 -->
+    <path d="M682,348 C740,318 740,392 684,368"/> <!-- 4 loop -->
+    <line x1="650" y1="378" x2="650" y2="456"/>   <!-- 4 -> 5 -->
+    <line x1="616" y1="488" x2="434" y2="570"/>   <!-- 5 -> 6 -->
+    <path d="M368,574 C310,544 310,618 366,594"/> <!-- 6 loop -->
+    <line x1="400" y1="604" x2="400" y2="660"/>   <!-- 6 -> 7 -->
+    <line x1="368" y1="690" x2="184" y2="738"/>   <!-- 7 -> 8 -->
+  </g>
+
+  <!-- Nodes -->
+  <g fill="#ffffff" stroke="#9c2a5c" stroke-width="2">
+    <rect x="118" y="130" width="64" height="40" rx="10"/> <!-- 1 -->
+    <rect x="368" y="130" width="64" height="40" rx="10"/> <!-- 2 -->
+    <rect x="368" y="230" width="64" height="40" rx="10"/> <!-- 3 -->
+    <rect x="618" y="338" width="64" height="40" rx="10"/> <!-- 4 -->
+    <rect x="618" y="458" width="64" height="40" rx="10"/> <!-- 5 -->
+    <rect x="368" y="564" width="64" height="40" rx="10"/> <!-- 6 -->
+    <rect x="368" y="662" width="64" height="40" rx="10"/> <!-- 7 -->
+    <rect x="118" y="718" width="64" height="40" rx="10"/> <!-- 8 -->
+  </g>
+  <g font-size="18" font-weight="bold" fill="#9c2a5c" text-anchor="middle" dominant-baseline="central">
+    <text x="150" y="150">1</text>
+    <text x="400" y="150">2</text>
+    <text x="400" y="250">3</text>
+    <text x="650" y="358">4</text>
+    <text x="650" y="478">5</text>
+    <text x="400" y="584">6</text>
+    <text x="400" y="682">7</text>
+    <text x="150" y="738">8</text>
+  </g>
+</svg>

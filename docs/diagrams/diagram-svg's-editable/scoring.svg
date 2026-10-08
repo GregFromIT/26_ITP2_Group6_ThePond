@@ -1,0 +1,42 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 760 811" width="760" height="811" font-family="Helvetica, Arial, sans-serif">
+<defs><marker id="arrow" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="8" markerHeight="8" orient="auto-start-reverse"><path d="M0,0 L10,5 L0,10 z" fill="#2f6f5e"/></marker></defs>
+<rect width="760" height="811" fill="#ffffff"/>
+<g transform="translate(105.0,0)">
+<text x="275.0" y="44" text-anchor="middle" font-size="26" font-weight="bold" fill="#222">Scoring</text>
+<rect x="60" y="70" width="180" height="450" rx="24" fill="#f4f7f6" stroke="#2f6f5e" stroke-width="2"/>
+<text x="150.0" y="104" text-anchor="middle" font-size="20" font-weight="bold" fill="#222">user</text>
+<rect x="310" y="70" width="180" height="450" rx="24" fill="#f4f7f6" stroke="#2f6f5e" stroke-width="2"/>
+<text x="400.0" y="104" text-anchor="middle" font-size="20" font-weight="bold" fill="#222">db (+ code)</text>
+<g stroke="#2f6f5e" stroke-width="2" fill="none" marker-end="url(#arrow)">
+<line x1="182.0" y1="150.0" x2="368.0" y2="150.0"/>
+<line x1="400.0" y1="170.0" x2="400.0" y2="240.0"/>
+<line x1="368.0" y1="260.0" x2="182.0" y2="260.0"/>
+<line x1="400.0" y1="280.0" x2="400.0" y2="340.0"/>
+<line x1="368.0" y1="370.2" x2="182.0" y2="429.8"/>
+<path d="M432.0,252 C490.0,220 490.0,294 434.0,270"/>
+</g>
+<rect x="118.0" y="130" width="64" height="40" rx="10" fill="#fff" stroke="#9c2a5c" stroke-width="2"/>
+<text x="150.0" y="150" text-anchor="middle" dominant-baseline="central" font-size="18" font-weight="bold" fill="#9c2a5c">1</text>
+<rect x="368.0" y="130" width="64" height="40" rx="10" fill="#fff" stroke="#9c2a5c" stroke-width="2"/>
+<text x="400.0" y="150" text-anchor="middle" dominant-baseline="central" font-size="18" font-weight="bold" fill="#9c2a5c">2</text>
+<rect x="368.0" y="240" width="64" height="40" rx="10" fill="#fff" stroke="#9c2a5c" stroke-width="2"/>
+<text x="400.0" y="260" text-anchor="middle" dominant-baseline="central" font-size="18" font-weight="bold" fill="#9c2a5c">3</text>
+<rect x="118.0" y="240" width="64" height="40" rx="10" fill="#fff" stroke="#9c2a5c" stroke-width="2"/>
+<text x="150.0" y="260" text-anchor="middle" dominant-baseline="central" font-size="18" font-weight="bold" fill="#9c2a5c">4</text>
+<rect x="368.0" y="340" width="64" height="40" rx="10" fill="#fff" stroke="#9c2a5c" stroke-width="2"/>
+<text x="400.0" y="360" text-anchor="middle" dominant-baseline="central" font-size="18" font-weight="bold" fill="#9c2a5c">5</text>
+<rect x="118.0" y="420" width="64" height="40" rx="10" fill="#fff" stroke="#9c2a5c" stroke-width="2"/>
+<text x="150.0" y="440" text-anchor="middle" dominant-baseline="central" font-size="18" font-weight="bold" fill="#9c2a5c">6</text>
+<text x="60.0" y="570" font-size="15" font-weight="bold" fill="#9c2a5c">1.</text>
+<text x="90.0" y="570" font-size="15" fill="#222">user inputs flag</text>
+<text x="60.0" y="603" font-size="15" font-weight="bold" fill="#9c2a5c">2.</text>
+<text x="90.0" y="603" font-size="15" fill="#222">flag is checked against flags table</text>
+<text x="60.0" y="636" font-size="15" font-weight="bold" fill="#9c2a5c">3.</text>
+<text x="90.0" y="636" font-size="15" fill="#222">flag is checked against user-flag table</text>
+<text x="60.0" y="669" font-size="15" font-weight="bold" fill="#9c2a5c">4.</text>
+<text x="90.0" y="669" font-size="15" fill="#222">user is updated w/ success or fail</text>
+<text x="60.0" y="702" font-size="15" font-weight="bold" fill="#9c2a5c">5.</text>
+<text x="90.0" y="702" font-size="15" fill="#222">if success, update user table += points</text>
+<text x="60.0" y="735" font-size="15" font-weight="bold" fill="#9c2a5c">6.</text>
+<text x="90.0" y="735" font-size="15" fill="#222">user is updated</text>
+</g></svg>
