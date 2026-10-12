@@ -105,28 +105,28 @@ def seed_challenges_from_yaml():
                        template_id=template.template_id, vm_role=role, static_ip=static_ip))
                    db.session.commit()
 
-               flag_plain = cfg.get("flag")
-               if flag_plain:
-                    if "points" not in cfg:
-                        raise ValueError(
-                            f"{path.name}: challenge '{slug}' has a flag but no 'points:' value. "
-                            "Every flag must specify its own points explicitly in the YAML - "
-                            "there is no default, so add one and re-run."
-                        )
-                    flag_hash = _hash_flag(flag_plain)
-                    existing_flag = db.session.execute(
-                        db.select(ChallengeFlag).filter_by(challenge_id=challenge.challenge_id, template_id=template.template_id, flag_hash=flag_hash)
-                    ).scalar_one_or_none()
-                    if existing_flag is None:
-                        db.session.add(ChallengeFlag(
-                            challenge_id=challenge.challenge_id,
-                            template_id=template.template_id,
-                            flag_name=f"{slug}-flag",
-                            flag_hash=flag_hash,
-                            points=cfg["points"],
-                        ))
-                        db.session.commit()
-                        print(f"    + flag for {template_name}")
+            flag_plain = cfg.get("flag")
+            if flag_plain:
+                if "points" not in cfg:
+                    raise ValueError(
+                        f"{path.name}: challenge '{slug}' has a flag but no 'points:' value. "
+                        "Every flag must specify its own points explicitly in the YAML - "
+                        "there is no default, so add one and re-run."
+                    )
+                flag_hash = _hash_flag(flag_plain)
+                existing_flag = db.session.execute(
+                    db.select(ChallengeFlag).filter_by(challenge_id=challenge.challenge_id, template_id=template.template_id, flag_hash=flag_hash)
+                ).scalar_one_or_none()
+                if existing_flag is None:
+                    db.session.add(ChallengeFlag(
+                        challenge_id=challenge.challenge_id,
+                        template_id=template.template_id,
+                        flag_name=f"{slug}-flag",
+                        flag_hash=flag_hash,
+                        points=cfg["points"],
+                    ))
+                    db.session.commit()
+                    print(f"    + flag for {template_name}")
 
            for rule in cfg.get("network_rules", []):
                existing_rule = db.session.execute(

@@ -75,7 +75,8 @@ from . import audit, throttle
 from .auth import login_required
 from .proxmox import (
     ProxmoxError, apply_network_rule, clone_and_start, create_session_vnet,
-    destroy_session_vnet, enable_vm_firewall, get_console_ticket, stop_and_destroy,
+    destroy_session_vnet, enable_vm_firewall, get_console_ticket, relay_sslopt,
+    stop_and_destroy,
 )
 from .scoring import (
     FLAG_HIT, FLAG_MISS, FLAG_REPEAT, category_challenge_matrix, category_leaderboard,
@@ -510,7 +511,7 @@ def console_relay(ws, instance_id):
     upstream = ws_client.create_connection(
         upstream_url,
         header=[auth_header],
-        sslopt={"cert_reqs": ssl.CERT_NONE if not cfg["PROXMOX_VERIFY_SSL"] else ssl.CERT_REQUIRED},
+        sslopt=relay_sslopt(cfg),
     )
 
     def pump_upstream_to_client():

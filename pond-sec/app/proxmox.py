@@ -10,6 +10,7 @@ touch, and a per-launch check that the token has not been widened.
 
 import os
 import re
+import ssl
 import sys
 import time
 from pathlib import Path
@@ -137,6 +138,15 @@ def _tls_verify(cfg):
     one (requests accepts a path there), else the on/off flag."""
     return cfg.get("PROXMOX_CA_BUNDLE") or bool(cfg["PROXMOX_VERIFY_SSL"])
 
+def relay_sslopt(cfg):
+    """The same trust decision as _tls_verify(), in the shape websocket-client's
+    create_connection(sslopt=...) takes, for the console relay."""
+    ca = cfg.get("PROXMOX_CA_BUNDLE")
+    if ca:
+        return {"cert_reqs": ssl.CERT_REQUIRED, "ca_certs": ca}
+    if cfg["PROXMOX_VERIFY_SSL"]:
+        return {"cert_reqs": ssl.CERT_REQUIRED}
+    return {"cert_reqs": ssl.CERT_NONE}
 
 # What the token may hold, per ACL path. These mirror the roles in
 # playbooks/pond_least_privilege.yml; tests/test_credentials.py builds the

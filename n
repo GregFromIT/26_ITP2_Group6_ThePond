@@ -1,0 +1,106 @@
+[1mdiff --git a/db/init_database.py b/db/init_database.py[m
+[1mindex 0ba6285..6292bb3 100644[m
+[1m--- a/db/init_database.py[m
+[1m+++ b/db/init_database.py[m
+[36m@@ -105,28 +105,28 @@[m [mdef seed_challenges_from_yaml():[m
+                        template_id=template.template_id, vm_role=role, static_ip=static_ip))[m
+                    db.session.commit()[m
+ [m
+[31m-               flag_plain = cfg.get("flag")[m
+[31m-               if flag_plain:[m
+[31m-                    if "points" not in cfg:[m
+[31m-                        raise ValueError([m
+[31m-                            f"{path.name}: challenge '{slug}' has a flag but no 'points:' value. "[m
+[31m-                            "Every flag must specify its own points explicitly in the YAML - "[m
+[31m-                            "there is no default, so add one and re-run."[m
+[31m-                        )[m
+[31m-                    flag_hash = _hash_flag(flag_plain)[m
+[31m-                    existing_flag = db.session.execute([m
+[31m-                        db.select(ChallengeFlag).filter_by(challenge_id=challenge.challenge_id, template_id=template.template_id, flag_hash=flag_hash)[m
+[31m-                    ).scalar_one_or_none()[m
+[31m-                    if existing_flag is None:[m
+[31m-                        db.session.add(ChallengeFlag([m
+[31m-                            challenge_id=challenge.challenge_id,[m
+[31m-                            template_id=template.template_id,[m
+[31m-                            flag_name=f"{slug}-flag",[m
+[31m-                            flag_hash=flag_hash,[m
+[31m-                            points=cfg["points"],[m
+[31m-                        ))[m
+[31m-                        db.session.commit()[m
+[31m-                        print(f"    + flag for {template_name}")[m
+[32m+[m[32m            flag_plain = cfg.get("flag")[m
+[32m+[m[32m            if flag_plain:[m
+[32m+[m[32m                if "points" not in cfg:[m
+[32m+[m[32m                    raise ValueError([m
+[32m+[m[32m                        f"{path.name}: challenge '{slug}' has a flag but no 'points:' value. "[m
+[32m+[m[32m                        "Every flag must specify its own points explicitly in the YAML - "[m
+[32m+[m[32m                        "there is no default, so add one and re-run."[m
+[32m+[m[32m                    )[m
+[32m+[m[32m                flag_hash = _hash_flag(flag_plain)[m
+[32m+[m[32m                existing_flag = db.session.execute([m
+[32m+[m[32m                    db.select(ChallengeFlag).filter_by(challenge_id=challenge.challenge_id, template_id=template.template_id, flag_hash=flag_hash)[m
+[32m+[m[32m                ).scalar_one_or_none()[m
+[32m+[m[32m                if existing_flag is None:[m
+[32m+[m[32m                    db.session.add(ChallengeFlag([m
+[32m+[m[32m                        challenge_id=challenge.challenge_id,[m
+[32m+[m[32m                        template_id=template.template_id,[m
+[32m+[m[32m                        flag_name=f"{slug}-flag",[m
+[32m+[m[32m                        flag_hash=flag_hash,[m
+[32m+[m[32m                        points=cfg["points"],[m
+[32m+[m[32m                    ))[m
+[32m+[m[32m                    db.session.commit()[m
+[32m+[m[32m                    print(f"    + flag for {template_name}")[m
+ [m
+            for rule in cfg.get("network_rules", []):[m
+                existing_rule = db.session.execute([m
+[1mdiff --git a/pond-sec/app/proxmox.py b/pond-sec/app/proxmox.py[m
+[1mindex 10e1a35..9a86100 100644[m
+[1m--- a/pond-sec/app/proxmox.py[m
+[1m+++ b/pond-sec/app/proxmox.py[m
+[36m@@ -10,6 +10,7 @@[m [mtouch, and a per-launch check that the token has not been widened.[m
+ [m
+ import os[m
+ import re[m
+[32m+[m[32mimport ssl[m
+ import sys[m
+ import time[m
+ from pathlib import Path[m
+[36m@@ -137,6 +138,15 @@[m [mdef _tls_verify(cfg):[m
+     one (requests accepts a path there), else the on/off flag."""[m
+     return cfg.get("PROXMOX_CA_BUNDLE") or bool(cfg["PROXMOX_VERIFY_SSL"])[m
+ [m
+[32m+[m[32mdef relay_sslopt(cfg):[m
+[32m+[m[32m    """The same trust decision as _tls_verify(), in the shape websocket-client's[m
+[32m+[m[32m    create_connection(sslopt=...) takes, for the console relay."""[m
+[32m+[m[32m    ca = cfg.get("PROXMOX_CA_BUNDLE")[m
+[32m+[m[32m    if ca:[m
+[32m+[m[32m        return {"cert_reqs": ssl.CERT_REQUIRED, "ca_certs": ca}[m
+[32m+[m[32m    if cfg["PROXMOX_VERIFY_SSL"]:[m
+[32m+[m[32m        return {"cert_reqs": ssl.CERT_REQUIRED}[m
+[32m+[m[32m    return {"cert_reqs": ssl.CERT_NONE}[m
+ [m
+ # What the token may hold, per ACL path. These mirror the roles in[m
+ # playbooks/pond_least_privilege.yml; tests/test_credentials.py builds the[m
+[1mdiff --git a/pond-sec/app/themes.py b/pond-sec/app/themes.py[m
+[1mindex fb0f0dd..d244fab 100644[m
+[1m--- a/pond-sec/app/themes.py[m
+[1m+++ b/pond-sec/app/themes.py[m
+[36m@@ -75,7 +75,8 @@[m [mfrom . import audit, throttle[m
+ from .auth import login_required[m
+ from .proxmox import ([m
+     ProxmoxError, apply_network_rule, clone_and_start, create_session_vnet,[m
+[31m-    destroy_session_vnet, enable_vm_firewall, get_console_ticket, stop_and_destroy,[m
+[32m+[m[32m    destroy_session_vnet, enable_vm_firewall, get_console_ticket, relay_sslopt,[m
+[32m+[m[32m    stop_and_destroy,[m
+ )[m
+ from .scoring import ([m
+     FLAG_HIT, FLAG_MISS, FLAG_REPEAT, category_challenge_matrix, category_leaderboard,[m
+[36m@@ -510,7 +511,7 @@[m [mdef console_relay(ws, instance_id):[m
+     upstream = ws_client.create_connection([m
+         upstream_url,[m
+         header=[auth_header],[m
+[31m-        sslopt={"cert_reqs": ssl.CERT_NONE if not cfg["PROXMOX_VERIFY_SSL"] else ssl.CERT_REQUIRED},[m
+[32m+[m[32m        sslopt=relay_sslopt(cfg),[m
+     )[m
+ [m
+     def pump_upstream_to_client():[m
