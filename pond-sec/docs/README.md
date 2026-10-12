@@ -78,10 +78,10 @@ app/proxmox.py        simulate and api backends behind one interface
 app/seed.py           demo content
 ```
 
-`CODE_MAP.md` in this folder goes through each of these in more detail. Start
-there if you are new to the code. `DATA_MODEL.md` covers the tables,
-`DECISIONS.md` covers why things are built the way they are, and
-`USER_GUIDE.md` is the one to hand to students and staff.
+`docs/architecture/pond-sec-code-map.md` (repo root) goes through each of these in more detail. Start
+there if you are new to the code. `docs/database/pond-sec-data-model.md` covers the tables,
+`docs/architecture/pond-sec-design-decisions.md` covers why things are built the way they are, and
+`docs/user-guides/pond-sec-user-guide.md` is the one to hand to students and staff.
 
 ## Preview without installing anything
 

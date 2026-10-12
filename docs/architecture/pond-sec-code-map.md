@@ -295,7 +295,7 @@ hand-drawn mockup would. Re-run it after any template or CSS change.
 
 ## Still to sort out
 
-Kept here as well as in `README.md` so it doesn't get lost:
+Kept here as well as in `../../pond-sec/docs/README.md` so it doesn't get lost:
 
 - [ ] The schema isn't final. Agree it before anyone has scores worth keeping,
       because `init-db` drops everything and we have no migrations yet.
