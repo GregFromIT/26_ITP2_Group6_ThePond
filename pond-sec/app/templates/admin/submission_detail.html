@@ -9,7 +9,7 @@
 </header>
 <section class="board"><h2>Challenge overview</h2>
 <p>{{ submission.manifest_json.description }}</p>
-<p>Category: {{ submission.manifest_json.category }} · Difficulty: {{ submission.manifest_json.difficulty }}</p>
+<p>Theme: {{ submission.manifest_json.category }} · Difficulty: {{ submission.manifest_json.difficulty }}</p>
 <h3>Student instructions</h3>{% for line in submission.manifest_json.instructions.splitlines() %}<p>{{ line }}</p>{% endfor %}
 <p>Execution: {{ ('vm' if submission.challenge_type == 'scored_vm' else submission.challenge_type)|replace('_', ' ') }}</p>
 {% if submission.challenge_type == 'container_lab' %}<p>Docker challenge key: {{ submission.manifest_json.docker_challenge_key }}</p><p>Workstation template ID: {{ submission.manifest_json.workstation_template_id }}</p>{% endif %}

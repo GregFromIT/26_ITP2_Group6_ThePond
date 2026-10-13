@@ -98,7 +98,7 @@ def _theme_dict(category: str, challenge_count: int) -> dict:
         "theme_id": category,
         "name": category.replace("_", " ").replace("-", " ").title(),
         "category": category,
-        "summary": f"{challenge_count} challenge{'s' if challenge_count != 1 else ''} in this category.",
+        "summary": f"{challenge_count} challenge{'s' if challenge_count != 1 else ''} in this theme.",
         "weighting": 1.0,
         "tile_image": None,
         "sort_order": 0,
