@@ -52,7 +52,6 @@ throttle if it can be hammered -> audit.record() if it changes state.
 """
 
 import shlex
-import ssl
 import threading
 from datetime import datetime
 from urllib.parse import quote
