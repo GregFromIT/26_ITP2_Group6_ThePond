@@ -63,7 +63,7 @@ from flask import (
 )
 from flask_sock import Sock
 
-from db.orm import db
+from db.orm import db, utcnow_naive
 from db.challenge_models import Challenge, NetworkRule
 from db.VMs_models import ChallengeFlag, VMTemplate
 from db.challenge_template_models import ChallengeTemplate
@@ -359,7 +359,7 @@ def launch(challenge_id):
 
     instance = ChallengeInstance(
         user_id=g.user["user_id"], challenge_id=challenge_id,
-        status="provisioning", started_at=datetime.utcnow(),
+        status="provisioning", started_at=utcnow_naive(),
         docker_challenge_key=challenge.docker_challenge_key,
     )
     db.session.add(instance)
@@ -417,7 +417,7 @@ def launch(challenge_id):
                 pass
         instance.status = "abandoned"
         instance.error_message = "Environment launch failed; see administrator logs."
-        instance.stopped_at = datetime.utcnow()
+        instance.stopped_at = utcnow_naive()
         db.session.commit()
         flash("The environment could not be started. Please contact an administrator.", "error")
         return redirect(url_for("themes.detail", theme_id=category))
@@ -620,7 +620,7 @@ def timer(instance_id):
     """Elapsed seconds, polled by the page so the clock survives a reload."""
     running = _owned_instance(instance_id)
     started = running["started_at"]
-    ended = running["ended_at"] or datetime.utcnow()
+    ended = running["ended_at"] or utcnow_naive()
     return jsonify(
         {
             "status": running["status"],
@@ -661,7 +661,7 @@ def _close(instance_id: int, status: str):
         .order_by(VMInstance.created_at.asc())
         .all()
     )
-    now = datetime.utcnow()
+    now = utcnow_naive()
     duration = max(0, int((now - instance.started_at).total_seconds()))
 
     instance.status = status

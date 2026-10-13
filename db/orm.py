@@ -9,6 +9,7 @@ breaking the existing instance management code.
 """
 
 import sqlite3
+from datetime import datetime, timezone
 
 from flask_sqlalchemy import SQLAlchemy
 from sqlalchemy import event
@@ -21,6 +22,16 @@ class Base(DeclarativeBase):
 
 
 db = SQLAlchemy(model_class=Base)
+
+
+def utcnow_naive() -> datetime:
+    """Current UTC time as a naive datetime.
+
+    Same value datetime.utcnow() returned, without the deprecation. SQLite
+    hands every DateTime back naive, so "now" must be naive too or comparisons
+    against stored values raise TypeError.
+    """
+    return datetime.now(timezone.utc).replace(tzinfo=None)
 
 
 @event.listens_for(Engine, "connect")

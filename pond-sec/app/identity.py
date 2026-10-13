@@ -5,7 +5,7 @@ a dict with the old field names - backed by db/user_models.py's real tables.
 
 from datetime import datetime
 
-from db.orm import db
+from db.orm import db, utcnow_naive
 from db.user_models import Role, User, UserCredential
 from db.scoring_models import UserSolve
 
@@ -67,5 +67,5 @@ def create_user(name: str, uni_year: str, username: str) -> int:
 
 def touch_last_login(user_id: int):
     user = db.session.get(User, user_id)
-    user.last_login_at = datetime.utcnow()
+    user.last_login_at = utcnow_naive()
     db.session.commit()

@@ -34,7 +34,7 @@ sys.path.insert(0, str(REPO_ROOT / "pond-sec"))
 
 from app import create_app  # noqa: E402
 from app.security import USERNAME_RE, issue_temporary_password  # noqa: E402
-from db.orm import db  # noqa: E402
+from db.orm import db, utcnow_naive  # noqa: E402
 from db.user_models import Role, User, UserCredential  # noqa: E402
 from db.throttle_models import ThrottleEvent  # noqa: E402
 from sqlalchemy import inspect  # noqa: E402
@@ -94,7 +94,7 @@ def seed_accounts(accounts, check_only=False):
             # never approve anyone, including themselves.
             user = User(username=username, display_name=display_name,
                         role=roles[role_name], is_active=True,
-                        approval_status="approved", approved_at=datetime.utcnow())
+                        approval_status="approved", approved_at=utcnow_naive())
             db.session.add(user)
             db.session.flush()
             temporary = issue_temporary_password(user.user_id)
