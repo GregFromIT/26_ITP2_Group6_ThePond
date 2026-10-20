@@ -617,6 +617,23 @@ def artefacts():
         finally:
             app.config["PROXMOX_TEMPLATE_BRIDGES"] = saved
 
+        _, parsed3, _, _ = render_playbook(pond_workstation_vnet="pondlab/pondnc")
+    ws_rows = [r for r in parsed3["pond_desired_acls"] if r["path"] == "/sdn/zones/pondlab/pondnc"]
+    check("pond_workstation_vnet adds one SDN.Use-only ACL and the PondBridge role",
+          len(ws_rows) == 1 and ws_rows[0]["role"] == "PondBridge" and roles["PondBridge"] == ["SDN.Use"]
+          and "PondBridge" in {r["key"] for r in parsed3["pond_desired_roles"]})
+    with app.app_context():
+        app.config["PROXMOX_WORKSTATION_ZONE"] = "pondlab"
+        try:
+            check("SDN.Use on the workstation VNet passes the app's allowlist",
+                  excess_privileges({"/sdn/zones/pondlab/pondnc": {"SDN.Use": 1}}, app.config) == [])
+            check("...but SDN.Allocate there does not",
+                  excess_privileges({"/sdn/zones/pondlab/pondnc": {"SDN.Allocate": 1}}, app.config) != [])
+        finally:
+            app.config["PROXMOX_WORKSTATION_ZONE"] = ""
+        check("with no workstation zone set, SDN.Use there is excess",
+              excess_privileges({"/sdn/zones/pondlab/pondnc": {"SDN.Use": 1}}, app.config) != [])
+
     granted = {p for privs in roles.values() for p in privs}
     dangerous = getattr(proxmox, "DANGEROUS_PRIVILEGES", None)
     check("the playbook grants nothing dangerous",

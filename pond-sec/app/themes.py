@@ -74,7 +74,7 @@ from . import audit, throttle
 from .auth import login_required
 from .proxmox import (
     ProxmoxError, apply_network_rule, clone_and_start, create_session_vnet,
-    destroy_session_vnet, enable_vm_firewall, get_console_ticket, relay_sslopt,
+    destroy_session_vnet, get_console_ticket, relay_sslopt,
     stop_and_destroy,
 )
 from .scoring import (
@@ -321,6 +321,39 @@ def _handout_command(template, challenge):
             f"chown -R {shlex.quote(user)}:{shlex.quote(user)} {shlex.quote(f'/home/{user}/Desktop')}")
 
 
+# RFC 1918 private ranges, RFC 6598 shared address space (carrier NAT) and
+# RFC 3927 link-local: everything a workstation must not reach except the
+# Docker host and DNS. Covers the hypervisor (10.1.21.151), the BMC and
+# UniFi Protect on VLAN 20, the teaching network and other students' clones.
+# Proxmox accepts a comma list in `dest` (pve.proxmox.com/wiki/Firewall).
+PRIVATE_NETS = "10.0.0.0/8,172.16.0.0/12,192.168.0.0/16,100.64.0.0/10,169.254.0.0/16"
+
+
+def _workstation_egress():
+    """Outbound rules for a Red Duck clone that shares pondnc with other
+    students, top to bottom (first match wins):
+
+      1. TCP to the Docker host - handouts on 8000, challenges on 31301+.
+      2. DNS (udp and tcp 53) to anything - the resolver handed out by the
+         gateway's DHCP is a private address, so this must sit above 3.
+      3. DROP every private range - other students, the hypervisor, the
+         management VLAN, VLAN 20.
+      4. TCP to the internet on POND_WORKSTATION_INTERNET_PORTS (empty = no
+         internet). Only reachable once pondnc has a routed uplink.
+
+    Anything else falls to policy_out=DROP."""
+    cfg = current_app.config
+    rules = [{"action": "ACCEPT", "proto": "tcp", "dest": cfg["POND_DOCKER_HOST_IP"]}]
+    ports = cfg["POND_WORKSTATION_INTERNET_PORTS"]
+    if ports:
+        rules += [{"action": "ACCEPT", "proto": "udp", "dport": "53"},
+                  {"action": "ACCEPT", "proto": "tcp", "dport": "53"}]
+    rules.append({"action": "DROP", "dest": PRIVATE_NETS})
+    if ports:
+        rules.append({"action": "ACCEPT", "proto": "tcp", "dport": ports})
+    return rules
+
+
 @bp.route("/challenges/<int:challenge_id>/launch", methods=("POST",))
 @login_required
 def launch(challenge_id):
@@ -371,13 +404,32 @@ def launch(challenge_id):
                      detail=f"offline challenge {challenge_id}, attempt {instance.instance_id}")
         return redirect(_back(category, challenge_id))
 
-    # Only multi-VM challenges get a session VNet + per-VM firewall - a
-    # single-VM challenge behaves exactly as before (clone stays on its
-    # template's existing bridge, no isolation-layer changes), since there
-    # is no second VM in the session for isolation to matter against.
-    vnet = None
-    if len(assignments) > 1:
-        vnet = create_session_vnet(instance.instance_id)
+    # Every VM launch gets its own router-less session VNet, single- or
+    # multi-VM, so no two students share a segment. The exception is a
+    # lone Red Duck workstation (a container lab, or a YAML-seeded BSides
+    # challenge, which is seeded as execution_type 'vm'): it must stay on
+    # pondnc to reach the Docker host, which a gateway-less VNet cannot
+    # route to. Those clones instead get inbound DROP and the outbound
+    # rules in _workstation_egress(), so students on pondnc still cannot
+    # open a connection to each other. clone_and_start() firewalls every
+    # clone before it boots.
+    workstation = current_app.config["POND_HANDOUT_TEMPLATE"]
+    lone_workstation = (len(assignments) == 1 and bool(workstation)
+                        and assignments[0].template.template_name == workstation)
+    vnet, egress_rules = None, None
+    if challenge.execution_type == "container_lab" or lone_workstation:
+        egress_rules = _workstation_egress()
+    else:
+        try:
+            vnet = create_session_vnet(instance.instance_id)
+        except ProxmoxError as exc:
+            current_app.logger.error("session network for instance %s: %s", instance.instance_id, exc)
+            instance.status = "abandoned"
+            instance.error_message = "Environment launch failed; see administrator logs."
+            instance.stopped_at = utcnow_naive()
+            db.session.commit()
+            flash("The environment could not be started. Please contact an administrator.", "error")
+            return redirect(url_for("themes.detail", theme_id=category))
         instance.network_identifier = vnet
         db.session.commit()
 
@@ -393,8 +445,8 @@ def launch(challenge_id):
                 challenge_template_id=assignment.challenge_template_id,
                 vnet=vnet,
                 static_ip=assignment.static_ip,
-                gateway=current_app.config["PROXMOX_LAB_GATEWAY"] if vnet is None else None,
                 firstboot_command=_handout_command(template, challenge),
+                egress_rules=egress_rules,
             )
             clones[assignment.vm_role] = (clone, assignment)
         if challenge.execution_type == "container_lab":
@@ -424,8 +476,6 @@ def launch(challenge_id):
 
     if len(clones) > 1:
         rules = db.session.query(NetworkRule).filter_by(challenge_id=challenge_id).all()
-        for clone, _ in clones.values():
-            enable_vm_firewall(clone.vmid, clone.node)
         for rule in rules:
             if rule.from_role not in clones or rule.to_role not in clones:
                 continue  # a rule referencing a role this challenge doesn't have - skip, don't crash launch

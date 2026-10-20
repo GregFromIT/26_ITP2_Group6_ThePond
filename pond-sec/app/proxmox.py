@@ -193,6 +193,9 @@ def allowed_privileges(path: str, cfg, membership=None) -> frozenset:
         return frozenset({"SDN.Allocate"})
     if parts[:3] == ["sdn", "zones", cfg["PROXMOX_SDN_ZONE"]]:
         return _SDN_ZONE_PRIVS
+    if cfg.get("PROXMOX_WORKSTATION_ZONE") and parts[:3] == ["sdn", "zones", cfg["PROXMOX_WORKSTATION_ZONE"]]:
+        # Use only: never create or delete VNets in a zone that reaches the physical network.
+        return frozenset({"SDN.Use"})
     if len(parts) == 4 and parts[:3] == ["sdn", "zones", "localnetwork"]:
         return frozenset({"SDN.Use"}) if parts[3] in _csv(cfg.get("PROXMOX_TEMPLATE_BRIDGES")) else frozenset()
     if parts == ["pool", cfg["PROXMOX_POOL"]]:
@@ -308,7 +311,8 @@ def clone_and_start(template_vmid: int, node: str = None, label: str = "challeng
                      *, instance_id: int, template_id: int, vnet: str | None = None,
                      static_ip: str | None = None, gateway: str | None = None,
                      challenge_template_id: int | None = None,
-                     firstboot_command: str | None = None) -> Clone:
+                     firstboot_command: str | None = None,
+                     egress_rules: list[dict] | None = None) -> Clone:
     """
     static_ip: pass the launching challenge's ChallengeTemplate.static_ip to bake
     a static network config into this clone before boot (see provisioner's
@@ -334,6 +338,13 @@ def clone_and_start(template_vmid: int, node: str = None, label: str = "challeng
     _refuse_protected(template_vmid)
     client = _client()
     _check_token_privileges(client)
+    # after _check_token_privileges(client)
+    try:
+        _core.check_isolation_preconditions(client, cfg["PROXMOX_SDN_ZONE"])
+    except ProxmoxError:
+        raise
+    except Exception as exc:   # e.g. ResourceException reading the options
+        raise ProxmoxError(f"could not confirm network isolation: {exc}") from exc
     proxmox_host = cfg["PROXMOX_HOST"] if (static_ip is not None or firstboot_command is not None) else None
     return _core.clone_and_start(
         client, template_vmid, node, label=label,
@@ -341,7 +352,7 @@ def clone_and_start(template_vmid: int, node: str = None, label: str = "challeng
         instance_id=instance_id, template_id=template_id, vnet=vnet,
         challenge_template_id=challenge_template_id,
         static_ip=static_ip, proxmox_host=proxmox_host, gateway=gateway,
-        firstboot_command=firstboot_command,
+        firstboot_command=firstboot_command, egress_rules=egress_rules,
         pool=cfg["PROXMOX_POOL"],   # the only pool the token can create VMs in
     )
 
@@ -369,7 +380,11 @@ def create_session_vnet(instance_id: int) -> str:
     """One VNet per ChallengeInstance (session) - call once in launch(),
     before cloning any of that session's VMs, and pass the result as
     vnet= to every clone_and_start() call for that session."""
-    return _core.create_session_vnet(_client(), instance_id)
+    client = _client()
+    try:
+        return _core.create_session_vnet(client, instance_id)
+    except Exception as exc:   # proxmoxer's ResourceException would otherwise 500 the launch
+        raise ProxmoxError(f"Proxmox refused the session network: {exc}") from exc
 
 
 def destroy_session_vnet(vnet: str) -> None:

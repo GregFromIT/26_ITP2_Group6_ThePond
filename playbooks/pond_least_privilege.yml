@@ -54,6 +54,7 @@
     # the self-check refuses any grant outside them.
     pond_storages: ["local-lvm"]
     pond_template_bridges: []
+    pond_workstation_vnet: ""
     pond_protected_vmids: [300, 301, 302, 303]
     pond_node: "pve"
     pond_grant_node_audit: false      # only if task-status reads return 403
@@ -204,12 +205,12 @@
           {%- set out = pond_acls | list -%}
           {%- for sid in pond_storages -%}{%- set _ = out.append({'path': '/storage/' ~ sid, 'role': 'PondStorage', 'propagate': 0}) -%}{%- endfor -%}
           {%- for br in pond_template_bridges -%}{%- set _ = out.append({'path': '/sdn/zones/localnetwork/' ~ br, 'role': 'PondBridge', 'propagate': 1}) -%}{%- endfor -%}
+          {%- if pond_workstation_vnet -%}{%- set _ = out.append({'path': '/sdn/zones/' ~ pond_workstation_vnet, 'role': 'PondBridge', 'propagate': 1}) -%}{%- endif -%}
           {%- if pond_grant_node_audit -%}{%- set _ = out.append({'path': '/nodes/' ~ pond_node, 'role': 'PondAudit', 'propagate': 0}) -%}{%- endif -%}
           {{- out -}}
         pond_desired_roles: >-
           {{ pond_roles | dict2items | rejectattr('key', 'equalto', 'PondBridge') | list
-             + (pond_roles | dict2items | selectattr('key', 'equalto', 'PondBridge') | list if pond_template_bridges | length > 0 else []) }}
-
+             + (pond_roles | dict2items | selectattr('key', 'equalto', 'PondBridge') | list if (pond_template_bridges | length > 0 or pond_workstation_vnet) else []) }}
     # ----------------------------------------------------------------- roles
     - name: Read existing roles
       ansible.builtin.command: pveum role list --output-format json

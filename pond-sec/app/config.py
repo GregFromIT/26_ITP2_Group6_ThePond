@@ -129,6 +129,13 @@ class Config:
     POND_HANDOUT_BASE_URL = os.environ.get("POND_HANDOUT_BASE_URL", "http://10.1.30.10:8000")
     POND_HANDOUT_USER = os.environ.get("POND_HANDOUT_USER", "kali")
 
+        # Docker host on pondnc; Red Duck's egress always allows TCP here.
+    POND_DOCKER_HOST_IP = os.environ.get("POND_DOCKER_HOST_IP", "10.1.30.10")
+    # TCP ports Red Duck may use to the internet (Proxmox dport syntax). "" = none.
+    POND_WORKSTATION_INTERNET_PORTS = os.environ.get("POND_WORKSTATION_INTERNET_PORTS", "80,443")
+    # Zone holding pondnc once it is VLAN-backed (Task 2). "" until then.
+    PROXMOX_WORKSTATION_ZONE = os.environ.get("PROXMOX_WORKSTATION_ZONE", "")
+
     # Certificate verification is ON everywhere. Without it anyone on the path to
     # the hypervisor can impersonate it and capture the API token. 0 is refused
     # in production; in development an explicit 0 works but logs a warning.
