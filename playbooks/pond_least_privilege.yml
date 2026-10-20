@@ -54,6 +54,11 @@
     # the self-check refuses any grant outside them.
     pond_storages: ["local-lvm"]
     pond_template_bridges: []
+    # "<zone>/<vnet>" of the Red Duck workstation network once pondnc is a
+    # VLAN-backed VNet (e.g. "pondlab/pondnc"). Gets SDN.Use only, on that one
+    # VNet - the ACL path is /sdn/zones/<zone>/<vnet> (Proxmox staff,
+    # forum.proxmox.com/threads/135451). Must match the app's
+    # PROXMOX_WORKSTATION_ZONE. Empty = pondnc is still in pond_sdn_zone.
     pond_workstation_vnet: ""
     pond_protected_vmids: [300, 301, 302, 303]
     pond_node: "pve"
@@ -182,17 +187,20 @@
           - (cfg | dict2items | selectattr('key', 'match', '^(ide|sata|scsi|virtio)[0-9]+$') | map(attribute='value') | map('string') | select('match', '^(cdrom|/dev/)') | list | length) == 0
           # Every disk lives on a storage the token is granted.
           - (cfg | dict2items | selectattr('key', 'match', '^(ide|sata|scsi|virtio|efidisk|tpmstate)[0-9]+$') | map(attribute='value') | map('string') | reject('match', '^(none|cdrom)') | reject('search', 'media=cdrom') | map('regex_replace', ':.*$', '') | difference(pond_storages) | length) == 0
-          # Every NIC bridge is a VNet in the session zone or an explicitly granted bridge.
-          - (cfg | dict2items | selectattr('key', 'match', '^net[0-9]+$') | map(attribute='value') | map('regex_search', 'bridge=([^,]+)', '\\1') | map('first') | difference(vnets_in_zone + pond_template_bridges) | length) == 0
+          # Every NIC bridge is a VNet in the session zone, the workstation VNet, or an
+          # explicitly granted bridge.
+          - (cfg | dict2items | selectattr('key', 'match', '^net[0-9]+$') | map(attribute='value') | map('regex_search', 'bridge=([^,]+)', '\\1') | map('first') | difference(vnets_in_zone + pond_template_bridges + workstation_vnets) | length) == 0
         fail_msg: >-
           Template {{ item.item }} cannot be cloned by the least-privilege token: it has a host
           CD-ROM, a disk outside {{ pond_storages }}, or a NIC on a bridge that is neither a VNet
-          in {{ pond_sdn_zone }} nor listed in pond_template_bridges. Either move its NICs to a
+          in {{ pond_sdn_zone }}, nor pond_workstation_vnet, nor listed in pond_template_bridges. Either move its NICs to a
           placeholder VNet in {{ pond_sdn_zone }} (recommended), or add the bridge to
           pond_template_bridges.
       vars:
         cfg: "{{ item.stdout | from_json }}"
         vnets_in_zone: "{{ vnets_raw.stdout | from_json | selectattr('zone', 'equalto', pond_sdn_zone) | map(attribute='vnet') | list }}"
+        # The VNet part of "<zone>/<vnet>"; the token gets SDN.Use on exactly that path.
+        workstation_vnets: "{{ [pond_workstation_vnet.split('/') | last] if pond_workstation_vnet else [] }}"
       loop: "{{ template_configs.results }}"
       loop_control:
         label: "{{ item.item }}"
@@ -211,6 +219,7 @@
         pond_desired_roles: >-
           {{ pond_roles | dict2items | rejectattr('key', 'equalto', 'PondBridge') | list
              + (pond_roles | dict2items | selectattr('key', 'equalto', 'PondBridge') | list if (pond_template_bridges | length > 0 or pond_workstation_vnet) else []) }}
+
     # ----------------------------------------------------------------- roles
     - name: Read existing roles
       ansible.builtin.command: pveum role list --output-format json
