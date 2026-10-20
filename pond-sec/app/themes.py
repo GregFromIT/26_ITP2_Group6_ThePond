@@ -454,6 +454,7 @@ def launch(challenge_id):
             container_lab.start(instance, {"vmid": clone.vmid, "node": clone.node,
                 "instance_id": instance.instance_id, "challenge_template_id": assignment.challenge_template_id})
     except (ProxmoxError, container_lab.ContainerLabError) as exc:
+        current_app.logger.error("launch failed for instance %s: %s", instance.instance_id, exc)
         container_lab.stop(instance)
         # A half-launched multi-VM session is worse than a clean failure -
         # tear down everything that DID start before reporting the error.
