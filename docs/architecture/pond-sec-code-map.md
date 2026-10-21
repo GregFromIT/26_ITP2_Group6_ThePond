@@ -1,281 +1,170 @@
-# Pond Sec — what each Python file does
+# Code map
 
-Notes for whoever picks this up next. Every file has a docstring at the top with
-more detail; this is just the map that tells you which one to open.
+What each file does, and where to look when something breaks. Every Python file
+starts with a docstring that goes into more detail; this map tells you which one
+to open.
 
-Vocabulary first, because we renamed things partway through and the old words
-are still in some of our meeting notes:
+Written against `main` at `04998a1` with `fix/seeder-theme-flagformat`
+(`3dc6afc`) merged. Line counts are approximate.
 
-- **theme** — a subject area like networking or forensics. Holds six challenges.
-- **challenge** — one exercise inside a theme, with its own VM.
-- **instance** — one student's live run at one challenge.
-- **flag** — a token proving a student got somewhere. Worth points.
+---
+
+## Vocabulary
+
+The code was renamed partway through, so old names survive in identifiers:
+
+| In the UI | In the code | Meaning |
+|---|---|---|
+| Theme | `theme_id`, `themes.py`, `_theme_dict()` | A group of challenges. Stored as the free-text `challenges.category`; there is no theme table |
+| Challenge | `Challenge` | One exercise, backed by one or more VM templates |
+| Session | `ChallengeInstance`, "instance" | One student's run at one challenge |
+| Clone | `VMInstance` | One VM cloned for a session |
+| Template | `VMTemplate` | A Proxmox template that clones come from; reusable across challenges via `ChallengeTemplate` |
+| Moderator / System administrator | `moderator` / `admin` in the app; `manager` / `sysadmin` in the database | Mapped in `identity.py`, `ROLE_NAME_TO_APP` |
 
 ---
 
 ## How a request moves through the app
 
-Every page load follows the same path, and knowing it makes the rest of this
-easier to follow:
+1. `pond-sec/wsgi.py` creates the app and hands it to the web server.
+2. `app/__init__.py` runs the request hooks, in this order: force HTTPS → check
+   the CSRF token → load the signed-in user → hold unapproved accounts on the
+   waiting page → pin accounts with a temporary password to the change-password
+   page.
+3. A blueprint handles it: `auth`, `dashboard`, `themes`, `admin` or `uploads`.
+4. The blueprint calls the support modules: `scoring` for points, `roles` for
+   permissions, `proxmox` for VMs, `identity` and `security` for accounts, and the
+   SQLAlchemy models in `db/` for data.
+5. A template in `app/templates/` renders the page, and `security_headers()`
+   adds the response headers on the way out.
 
-1. `wsgi.py` hands the request to the app object.
-2. `app/__init__.py` runs three checks, in this order: force HTTPS, check the
-   CSRF token, load the signed-in user.
-3. One of the blueprints handles it: `auth.py`, `dashboard.py`, `themes.py` or
-   `admin.py`.
-4. That blueprint asks the support modules for whatever it needs. `db.py` for
-   data, `scoring.py` for points, `roles.py` for permissions, `proxmox.py` for a
-   VM.
-5. A template in `app/templates/` renders it, and `security_headers()` back in
-   `app/__init__.py` stamps the response on the way out.
-
-Imports only go one way. Blueprints use the support modules, and the support
-modules never import blueprints. There is one exception, commented where it
-happens: `admin.py` imports `themes._close` inside a function so staff can close
-a student's session without us writing the teardown logic twice.
+Imports go one way: blueprints use the support modules, and support modules
+don't import blueprints. The one exception is `admin.close_session()`, which
+imports `themes._close()` inside the function, so staff closing a session uses
+the same teardown as a student.
 
 ---
 
-## Starting up
+## The web app: `pond-sec/`
 
-### `wsgi.py` (27 lines)
-The object a web server imports. Creates the app and does nothing else. The
-comments cover running it in development, under gunicorn on Linux and under
-waitress on Windows, plus two warnings worth reading before you deploy: never
-run with `--debug` on a network, and set `TRUSTED_PROXIES` if there's anything
-in front of it.
+### Start-up
 
-### `app/__init__.py` (278 lines)
-The assembly point, and probably the file to read first. `create_app()` wires
-everything else together, so it doubles as a map of the codebase.
+| File | Lines | What it does |
+|---|---|---|
+| `wsgi.py` | 29 | Creates the app. Its docstring has the development, gunicorn and Windows (waitress) commands. Never run with `--debug` on a network |
+| `app/__init__.py` | 318 | `create_app()`: loads `Config`, then the `POND_SETTINGS` file, sets up the database bind (default `the_pond.db` at the repo root), registers blueprints and hooks. Also the secret key (`resolve_secret_key()`), the start-up Proxmox settings check, security headers, the idle timeout, error pages and the `|stamp` / `|duration` template filters |
+| `app/config.py` | 176 | Every setting, each read from an environment variable with a default. `RANGE_ENV=production` tightens the defaults (secure cookies, HTTPS, no start without a secret key). Secrets have no defaults |
 
-It also holds the things that apply to every request no matter where it came
-from:
+### Accounts and security
 
-- `resolve_secret_key()` reads the key from the environment, generates a
-  development one if there isn't any, and refuses to start in production without
-  it. There's no hard-coded default anywhere.
-- `force_https()` redirects plain HTTP in production.
-- `security_headers()` adds the CSP, framing, sniffing and HSTS headers.
-- `session_is_idle()` signs people out after an hour untouched.
-- `register_error_handlers()` gives us friendly error pages, and is why a crash
-  never shows a stack trace in the browser.
-- `register_filters()` defines the `|stamp` and `|duration` template filters so
-  a timestamp looks the same on every page.
+| File | Lines | What it does |
+|---|---|---|
+| `app/auth.py` | 351 | `/register`, `/login`, `/logout`, `/change-password`, `/pending`. The `login_required` decorator. The approval gate and the forced password change |
+| `app/identity.py` | 70 | The bridge between the SQLAlchemy `User`/`Role` models and the dict-shaped `g.user` the templates expect. Maps database role names to app role names |
+| `app/security.py` | 161 | Password hashing (Werkzeug scrypt), password rules, lockout counting, temporary passwords. The only code that reads or writes `user_credentials` |
+| `app/roles.py` | 158 | The three roles and the `PERMISSIONS` matrix. `require()` guards a view; `can()` hides UI; `outranks()` compares ranks. Hiding a button isn't access control: `require()` is |
+| `app/csrf.py` | 66 | One token per session, required on every POST, compared with `secrets.compare_digest`. Every form needs the hidden `_csrf` field |
+| `app/throttle.py` | 99 | Rate limits, all in the `LIMITS` dict at the top. Counters live in the database (`throttle_events`), so several workers share one allowance |
+| `app/audit.py` | 69 | `record()` writes an `audit_logs` row; the event names are constants at the top. A write failure never breaks the request |
 
-New blueprints get registered here and nowhere else.
+### Pages
 
-### `app/config.py` (96 lines)
-Every setting in one place, each one reading an environment variable with a
-sensible default. Covers session and cookie policy, lockout rules, password
-length, request size caps and all the Proxmox connection details.
+| File | Lines | What it does |
+|---|---|---|
+| `app/dashboard.py` | 102 | `/` (landing page) and `/dashboard`. Asks `scoring` for every number |
+| `app/themes.py` | 740 | **The core.** Theme list and theme page; `launch()` (which decides whether a launch gets a session VNet or is a lone Red Duck, and builds Red Duck's outbound rules in `_workstation_egress()`), `flag()`, `close()`, `timer()`; the console page and the WebSocket relay to Proxmox. `_owned_instance()` returns 404 for anyone else's session, and every session route must call it. `_close()` records the result *before* destroying VMs, so a hypervisor failure can't cost a student their score |
+| `app/admin.py` | 498 | The staff console at `/admin`: accounts, approvals, unlock/lock, temporary passwords, roles, sessions, audit log. Also the `flask --app wsgi set-role` CLI command |
+| `app/uploads.py` | 248 | Challenge submission pages under `/admin/challenge-submissions`, and the `/notifications` inbox. Thin over `challenge_ingestion/` |
 
-Setting `RANGE_ENV=production` tightens a group of defaults at once: secure-only
-cookies, HTTPS enforced, TLS verified, and no startup without a real secret key.
+### Calculations and outside systems
 
-Add settings here and document them in `.env.example`. Read them with
-`current_app.config[...]` rather than `os.environ` directly, otherwise tests
-can't override them.
+| File | Lines | What it does |
+|---|---|---|
+| `app/scoring.py` | 314 | `submit_flag()` grades a flag; `challenge_progress()`; the overall and per-theme leaderboards; the per-challenge matrix; `user_stats()`. Admins are excluded from every board |
+| `app/proxmox.py` | 406 | The hypervisor adapter: the only file in `app/` that knows Proxmox exists. Checks settings (`settings_problems()`), refuses `@pam` tokens and protected VMIDs, checks the token's effective rights before every launch (`_check_token_privileges()` against `allowed_privileges()`, cached `PROXMOX_PRIVILEGE_CHECK_TTL` seconds), checks isolation can work (`provisioner.check_isolation_preconditions()`, every clone), and calls `provisioner.py` for the actual work. Turns Proxmox errors into `ProxmoxError` |
+| `app/container_lab.py` | 73 | The boundary to an external Docker server for `container_lab` challenges. Calls `CONTAINER_LAB_ADAPTER.start()` / `.stop()`. No adapter exists yet |
 
----
+### Templates and static files
 
-## Data
-
-### `app/db.py` (131 lines)
-The only file that opens a database connection. It gives everything else two
-functions, `query()` for reads and `execute()` for writes, both of which take
-the values separately from the SQL. That separation is what stops SQL injection,
-and it's why nothing else in the codebase builds a query with string formatting.
-
-Also provides the `flask --app wsgi init-db` and `seed-db` commands.
-
-Read the migration warning at the top before you change the schema. `init-db`
-drops and rebuilds everything, which is fine now and destructive once there are
-real scores.
-
-### `app/schema.sql`
-Not Python, but read it early. Tables, constraints and the two leaderboard
-views. The constraints are doing real work here: `UNIQUE(user_id, flag_id)` is
-what makes claiming a flag twice impossible, and the `CHECK` on `role` stops a
-typo creating an account with permissions nobody ever wrote.
-
-### `app/seed.py` (226 lines)
-Demo content: three themes, eighteen challenges, six VM templates, the flags and
-the demo accounts. This is where challenge content lives until somebody builds a
-staff interface for it, so adding a theme means editing this file rather than
-writing code.
-
-`_fabricate_scores()` invents leaderboard history so the boards aren't empty in
-a demo. That call needs deleting before a real class uses the platform.
+- `app/templates/`: `base.html` (navigation) and one template per page.
+  `theme_detail.html` is the theme page with the challenge tiles and the live
+  session panel. `admin/` holds the staff console pages.
+- `app/static/js/session.js` keeps the session timer (polling `/timer` every
+  30 s), `console.js` runs noVNC against the relay, and `uploads.js` streams VM image files
+  on a submission's page. Scripts are external files because the content
+  security policy forbids inline script.
+- `app/static/novnc/`: the vendored noVNC client.
 
 ---
 
-## Security bits
+## Provisioning: repo root
 
-Four small files, and the ones a marker is most likely to look at.
+| File | Lines | What it does |
+|---|---|---|
+| `provisioner.py` | 638 | Every Proxmox operation. `get_client()`; `claim_vmid()` (VMID allocation, locked by a partial unique index); `clone_and_start()`; `create_session_vnet()` / `destroy_session_vnet()`; `check_isolation_preconditions()` (Simple zone, datacenter firewall on); `_firewall_nics()` (every NIC onto the VNet with `firewall=1`, read back); `enable_vm_firewall()` (inbound DROP, plus outbound rules when given, order verified) / `apply_network_rule()`; `inject_instance_network()` / `inject_firstboot_command()` (writing into a stopped clone's disk with `virt-customize` over SSH); `stop_and_destroy()`; `get_console_ticket()`. Holds `DEFAULT_VMID_RANGE`, `PROTECTED_VMIDS` and `VNET_ZONE` |
+| `import_challenge.py` | 416 | Interactive: downloads a VM image onto `pve`, extracts it, imports the disk, makes a template in 10000–10999, and writes the challenge YAML. Uses its own `THEPOND_PROXMOX_*` settings |
+| `group_vars/all.yml` | — | Proxmox host, node and token name, read by the seeder through `provisioner.load_config()` |
+| `playbooks/pond_least_privilege.yml` | — | Creates the app's Proxmox user, token, roles, pools and ACLs. Run on `pve` |
 
-### `app/security.py` (177 lines)
-Passwords and lockouts. The only file that reads or writes the password table.
+## Database: `db/`
 
-- `set_password()` and `password_matches()` handle hashing, via Werkzeug's
-  scrypt.
-- `password_problems()` holds the rules a new password has to pass. It returns
-  a list rather than raising, so the user sees everything wrong at once instead
-  of fixing one thing per attempt.
-- `issue_temporary_password()` is the staff recovery path. Generates three words
-  and a number, returns it once in the clear, and flags the account so the
-  student has to change it. It's never stored readable and never logged.
-- `register_failure()`, `lockout_remaining()` and `clear_lockout()` are the
-  three-strikes lockout.
+| File | What it does |
+|---|---|
+| `orm.py` | The shared `SQLAlchemy` object; foreign-key enforcement for SQLite (off by default in SQLite, switched on for every connection here); `utcnow_naive()`, the one way the code gets "now" (UTC, without a time zone, to match what SQLite returns) |
+| `user_models.py`, `challenge_models.py`, `VMs_models.py`, `challenge_template_models.py`, `runtime_models.py`, `scoring_models.py`, `audit_models.py`, `throttle_models.py` | The live tables (see the [data model](../database/pond-sec-data-model.md)) |
+| `submission_models.py`, `submission_file_models.py`, `submission_job_models.py`, `submission_issue_models.py`, `notification_models.py` | The submission pipeline's tables |
+| `__init__.py` | Imports every model except `throttle_models`, so `from db import …` works |
+| `init_database.py` | `python3 -m db.init_database [--check \| --seed-challenges]`: creates missing tables and the three roles, checks the schema, and seeds challenges from `vars/challenges/*.yml` |
+| `seed_accounts.py` | `python3 -m db.seed_accounts [--check] [--debug] [--reset]`: creates the accounts in its `ACCOUNTS` list |
+| `register_template.py`, `cleanup_docker_session.py`, `migrate_container_labs.py` | `container_lab` support (see [submission pipeline](../challenges/submission-pipeline.md)) |
+| `oneoff_add_account_approval.py` | A completed one-off migration; the example to copy for the next one |
+| `database_app.py` | A minimal Flask app with the default bind, used by `provisioner.py` when it runs outside the web app |
+| `store.py`, `schema.sql`, `init_user_db.py`, `init_databases.py`, `test_database.py` | Legacy (pre-SQLAlchemy MVP), or thin compatibility shims |
 
-### `app/csrf.py` (66 lines)
-One token per session, required on every POST, compared with
-`secrets.compare_digest` so the check can't be timed. We wrote it by hand rather
-than pulling in a library, partly so the mechanism is visible in the code.
+## Challenge submissions: `challenge_ingestion/`
 
-Every `<form method="post">` needs the hidden `_csrf` field or the submission
-comes back as a 400.
+| File | What it does |
+|---|---|
+| `requirements.py` | The manifest JSON schema and the fixed limits |
+| `storage.py` | Private quarantine storage on local disk |
+| `intake.py` | Draft creation, file upload, quota accounting |
+| `validation.py` | Read-only validation; calls the site's template verifier and image inspector |
+| `worker.py` | Lease-based validation worker |
+| `review.py` | Admin approve, reject, return for correction |
+| `publication.py` | Publishes an approved revision; calls the site's publication adapter for VMs |
+| `notifications.py` | In-app notification delivery and inbox |
+| `runtime.py` | `python3 -m challenge_ingestion.runtime`: runs one round of the workers |
 
-### `app/throttle.py` (106 lines)
-Rate limiting. Every limit is in one dictionary at the top of the file so the
-whole policy reads in one screen: sign-in attempts per source and per account,
-registrations, password changes, and flag guesses per challenge.
+## Content and tools
 
-Counters live in SQLite rather than in memory, because several gunicorn workers
-sharing a dict would each get their own full allowance.
+| Path | What it is |
+|---|---|
+| `vars/challenges/*.yml` | One file per challenge (see the [authoring guide](../challenges/authoring-guide.md)) |
+| `tools/gen_bsides_challenges.py`, `tools/gen_bsidessf24_challenges.py` | Generate challenge files (and a Docker deploy script) from an upstream CTF release |
+| `tools/pond-deploy-sf24.sh` | Generated deploy script for the BSidesSF 2024 containers, run on the Docker host |
+| `examples/challenge_uploads/*.json` | Example submission manifests |
+| `deployment/pond-settings.example.py` | Example `POND_SETTINGS` file |
+| `deployment/docker-host/` | The Docker host's configuration |
+| `WSGI_Files/.env.example` | Example environment settings (partly stale, known issue W8) |
 
-### `app/roles.py` (151 lines)
-Who's allowed to do what. Three roles (student, moderator, administrator) and
-one `PERMISSIONS` matrix saying which roles hold which capability.
+## Tests
 
-- `can()` is used in templates to hide controls.
-- `require()` is the decorator that actually blocks the request.
-- `outranks()` stops staff acting on accounts at their own level or above.
+| Path | Run with | Covers |
+|---|---|---|
+| `tests/` | `python3 -m pytest tests` | The live suite: accounts and approval, container labs and their migration, the submission pipeline, provisioner, network isolation, handouts, store |
+| `pond-sec/tests/test_credentials.py` | `python3 pond-sec/tests/test_credentials.py` | Token, TLS, protected-VM and privilege-check rules, plus a check that the playbook matches the app's allowlist. A script, not a pytest file |
+| `pond-sec/tests/test_flow.py` | — | Broken: written for the deleted raw-SQLite app |
 
-Use both `require()` and `can()`. Hiding a button is only politeness; the
-decorator is the thing doing the access control.
+More detail is in [testing](../testing/testing.md).
 
----
+## Legacy, not part of the running system
 
-## Pages
-
-### `app/auth.py` (306 lines)
-Register, sign in, sign out, change password. This decides who somebody is; the
-rules it applies live in `security.py` and the limits in `throttle.py`.
-
-Two things in here look like bugs and aren't, so read the comments before
-changing them. A taken username is reported plainly, because usernames are
-public on the leaderboards anyway. And there's no forgotten-password page at
-all, because with no email stored, recovery is staff-issued and in person.
-
-Also holds `login_required`, which most other views use, and
-`force_password_change`, which pins an account with a temporary password to the
-change-password page until it sets its own.
-
-### `app/dashboard.py` (75 lines)
-The landing page and the signed-in dashboard. Deliberately thin: it asks
-`scoring.py` for the numbers and hands them to a template. Anything that
-calculates a score belongs in `scoring.py`, so the dashboard and the theme pages
-can't end up disagreeing.
-
-### `app/themes.py` (394 lines)
-The biggest file and the core of the platform. Themes, challenges, VM instances
-and flag submission.
-
-A session goes like this. `launch()` clones a VM and writes the instance row.
-The challenge's tile on the theme page turns into a working panel with a timer,
-a console link and a flag box. `flag()` grades submissions and closes the
-challenge automatically once the last flag is captured. `close()` stops the
-clock and tears the VM down. There's no separate session page; it all happens
-inline on the theme page.
-
-`_owned_instance()` is the important one. It 404s on somebody else's instance,
-and it's the only thing standing between a student and another student's
-machine. Any new route that touches an instance has to call it.
-
-`_close()` deliberately records the result before it asks Proxmox to destroy
-anything, so a problem with the hypervisor can't cost a student their score.
-
-### `app/admin.py` (355 lines)
-The staff console at `/admin`. Account list, account detail, unlock, lock, issue
-a temporary password, change a role, view live sessions, force-close a session,
-read the audit log.
-
-Every route is guarded by `require()`, and every one that changes something also
-calls `_may_act_on()`, which refuses actions against equal or senior accounts.
-
-It also provides `flask --app wsgi set-role <username> <role>`, which is how the
-first administrator gets created. That's the one privilege escalation you can't
-do through the web, on purpose.
-
----
-
-## Calculations and outside systems
-
-### `app/scoring.py` (260 lines)
-Flag grading and all the leaderboards.
-
-- `submit_flag()` hashes the submission, matches it against the flags for that
-  challenge, logs the attempt either way, then writes the award and the points
-  total in a single transaction.
-- `challenge_progress()` gives flags captured against flags available.
-- `overall_leaderboard()`, `theme_leaderboard()`, `theme_challenge_matrix()` and
-  `user_stats()` are the four boards. All of them exclude administrators.
-- `_ranked()` attaches the ranks and shares them on ties, so ranking behaviour
-  only needs changing in one spot.
-
-### `app/proxmox.py`
-The hypervisor adapter, and the only file in `app/` that knows Proxmox exists.
-It is a thin shim over the shared `provisioner.py`, which does the cloning,
-per-session VNets, firewalling and console tickets.
-
-The credentials section decides what the adapter will hold (H3).
-`settings_problems()` is a pure check of the Proxmox settings, used by
-`_client()` and by `create_app()` so production refuses to start with a `@pam`
-token, no secret, or TLS off. `_client()` refuses before asking the provisioner
-for a client. Before every launch `_check_token_privileges()` reads
-`GET /access/permissions` and compares it, path by path, with
-`allowed_privileges()`; passes are cached for `PROXMOX_PRIVILEGE_CHECK_TTL`
-seconds, failures never are. The protected vmids are refused on every
-operation. TLS verification and pool placement only take effect once
-`provisioner.get_client()` and `provisioner.clone_and_start()` use them.
-
-### `app/audit.py` (58 lines)
-The security event log: sign-ins, failures, lockouts, role changes, temporary
-passwords, instance launches and closes. One `record()` function and a list of
-event-name constants.
-
-Write failures are swallowed on purpose. An audit problem should never be the
-reason a student can't sign in.
-
----
-
-## Not part of the running app
-
-### `tests/test_flow.py` (498 lines)
-91 checks covering registration, lockout, staff password resets, CSRF, rate
-limits, security headers, the VM lifecycle, scoring, roles and access control.
-No pytest. Run it with `python -m tests.test_flow` and it prints a line per
-check.
-
-Run it before every commit. A few of the checks are there because a
-reasonable-looking change would quietly break something: that a temporary
-password is never stored readable, that the console URL never ends up in the
-HTML, that a second student gets a 404 on somebody else's session. If one of
-those fails, the fix is almost never the test.
-
-### `tests/test_credentials.py`
-Same shape, no pytest, run with `python -m tests.test_credentials`. Pins which
-tokens and TLS settings the adapter accepts, the protected-VM rules, the
-per-launch privilege self-check, and that the shipped playbook agrees with
-`allowed_privileges()`. It installs a fake `proxmoxer` module first, so it can
-never open a connection.
-
-### `tools/build_preview.py` (338 lines)
-Builds `preview/pond-sec-preview.html`, the one-file preview of all twelve
-screens that needs nothing installed. It renders the real templates through
-Flask's test client, so it can't drift away from the actual interface like a
-hand-drawn mockup would. Re-run it after any template or CSS change.
+`debugger-app.py` with `templates/` and the `static/novnc` submodule (the
+original single-file debugger app); `proxmoxerTest.py`; `prov_net_test.py`;
+`db.test_database.py`; `playbooks/create_instance.yml` and
+`playbooks/destroy_instance.yml` with `inventory/` and `requirements.yml`;
+`pond-sec/tools/build_preview.py` and `pond-sec/preview/` (broken).
+[Known issues](../known-issues.md) §7 says what to do with each.
 
 ---
 
@@ -283,25 +172,15 @@ hand-drawn mockup would. Re-run it after any template or CSS change.
 
 | Symptom | Start here |
 |---|---|
-| "That form expired" on submit | `csrf.py`, the form is missing its `_csrf` field |
-| A 403 for someone who should have access | `roles.py`, check the `PERMISSIONS` matrix |
-| Scores look wrong | `scoring.py`, then the views in `schema.sql` |
-| A challenge won't launch | `proxmox.py` (settings and token check), then `provisioner.py` |
-| A student can't sign in | `security.py` for the lockout, `throttle.py` for the limits |
-| Something changed and nobody knows who | the audit log at `/admin/audit` |
-| A page renders but data is missing | the view that renders it, not the template |
-
----
-
-## Still to sort out
-
-Kept here as well as in `../../pond-sec/docs/README.md` so it doesn't get lost:
-
-- [ ] The schema isn't final. Agree it before anyone has scores worth keeping,
-      because `init-db` drops everything and we have no migrations yet.
-- [ ] `app/seed.py` is the only way to add challenge content. No staff UI for it.
-- [ ] Seeded flags are shared across challenges. Fine for a demo, no good for
-      assessment.
-- [ ] `provisioner.get_client()` must verify TLS (`_tls_verify`) and
-      `provisioner.clone_and_start()` must create clones in `PROXMOX_POOL`
-      before the least-privilege token can launch anything.
+| "That form expired" on submit | `csrf.py`: the form is missing its `_csrf` field, or the session expired |
+| A 403 for someone who should have access | `roles.py`, `PERMISSIONS` |
+| Someone can sign in but sees only "Waiting for approval" | `auth.gate_unapproved_accounts()`: approve them at `/admin/approvals` |
+| Every launch fails | The app log's `launch failed for instance` line. Then: the start-up log for `Proxmox settings:` warnings → `proxmox.settings_problems()`; `_check_token_privileges()`; `provisioner.check_isolation_preconditions()` (datacenter firewall off?); the Proxmox task log |
+| Only multi-VM or Red Duck launches fail | SSH to `pve`: `provisioner._ssh_client()` (key, user, known host) |
+| A launch gives a server error instead of "could not be started" | An exception `launch()` doesn't catch: a full VMID range (`RuntimeError`, known issue L16) or a refused network rule (L14). The traceback is in the app log |
+| Red Duck can't reach something it should | `themes._workstation_egress()` and `POND_DOCKER_HOST_IP`; on `pve`, `pvesh get /nodes/pve/qemu/<vmid>/firewall/rules` |
+| The console page opens but stays blank | `themes.console_relay()`; the browser's developer tools should show the WebSocket upgrade with status 101 |
+| A correct flag gives a 500 error | Duplicate flag rows left by a pre-merge seed (known issue B5) |
+| Scores look wrong | `scoring.py` |
+| A student can't sign in | `security.py` for the lockout, `throttle.py` for rate limits |
+| Something changed and nobody knows who | `/admin/audit` |
