@@ -40,8 +40,8 @@ SSH_KEY_ENV = "THEPOND_PROXMOX_SSH_KEY"  # mirrors TOKEN_SECRET_ENV's pattern - 
 # This range overlaps VMs 300-303, which belong to another project on the same
 # cluster. It is kept for the legacy callers and guarded instead: PROTECTED_VMIDS
 # is never allocated, cloned over, stopped or deleted (H3).
-DEFAULT_VMID_RANGE = (301, 399)
-PROTECTED_VMIDS = frozenset(range(300, 304))
+DEFAULT_VMID_RANGE = (1001, 2000)
+PROTECTED_VMIDS = frozenset(range(300, 304)) | {1000, 9999, 9997} #just incase something goes really wrong
 
 class ProxmoxError(RuntimeError):
     pass
@@ -131,10 +131,15 @@ def _resolve_template_vmid(client: ProxmoxAPI, node: str, template_name: str) ->
     VMs and containers into separate API trees with different clone params
     (qemu clone takes name=, lxc clone takes hostname=).
     """
-    for vm in client.nodes(node).qemu.get():
-        if vm.get("name") == template_name:
-            return vm["vmid"]
-    raise RuntimeError(f"no template named {template_name!r} found on node {node!r}")
+    matches = [vm for vm in client.nodes(node).qemu.get() if vm.get("name") == template_name]
+    templates = [vm for vm in matches if vm.get("template")] or matches
+    if len(templates) == 1:
+        return templates[0]["vmid"]
+    if not templates:
+        raise RuntimeError(f"no template named {template_name!r} found on node {node!r}")
+    vmids = ", ".join(str(vm["vmid"]) for vm in sorted(templates, key=lambda vm: vm["vmid"]))
+    raise RuntimeError(f"template name {template_name!r} is ambiguous on node {node!r} "
+                       f"(vmids {vmids}); rename one so each template name is unique")
 
 
 def create_instance(
@@ -232,7 +237,7 @@ def claim_vmid(
             except IntegrityError:
                 db.session.rollback()
                 continue
-    raise RuntimeError(f"no free VMIDs in range {start}-{end}")
+    raise ProxmoxError(f"no free VMIDs in range {start}-{end}")
 
 VNET_ZONE = "pondz"  # created once, by hand - see Phase 0. Not managed by this code.
 VNET_ID_RE = re.compile(r"^[a-z][a-z0-9]{0,7}$")  # SDN's own 8-char, lowercase-start rule
@@ -372,7 +377,7 @@ def _find_disk_volid(client: ProxmoxAPI, node: str, vmid: int) -> str:
     _refuse_protected(vmid)   # the result feeds a disk write
     config = client.nodes(node).qemu(vmid).config.get()
     for key, value in config.items():
-        if DISK_KEY_RE.match(key):
+        if DISK_KEY_RE.match(key) and "media=cdrom" not in value:
             return value.split(":", 1)[1].split(",")[0]  # storage:volid,size=... -> volid
     raise RuntimeError(f"no disk found in VM {vmid}'s config")
 
@@ -568,7 +573,7 @@ def clone_and_start(
     create VMs in its own pool, so without this every clone is a 403.
     """
     if (static_ip is not None or firstboot_command is not None) and proxmox_host is None:
-        raise ValueError("proxmox_host is required when static_ip or firstboot_command is set - both inject over SSH")
+        raise       ValueError("proxmox_host is required when static_ip or firstboot_command is set - both inject over SSH")
 
     _refuse_protected(template_vmid)
     reserved = claim_vmid(client, node, instance_id, template_id, *vmid_range, challenge_template_id=challenge_template_id)
@@ -578,9 +583,12 @@ def clone_and_start(
         options["storage"] = storage
     if pool:
         options["pool"] = pool
+        
+    cloned = False
     try:
         _refuse_protected(vmid)   # claim_vmid never returns one; belt and braces
         task = client.nodes(node).qemu(template_vmid).clone.post(**options)
+        cloned =True
         Tasks.blocking_status(client, task)
 
         if static_ip is not None:
@@ -595,6 +603,14 @@ def clone_and_start(
 
         client.nodes(node).qemu(vmid).status.start.post()
     except Exception as exc:
+        if cloned:
+            # marking the row deleted without destroying the VM left a
+            # hidden clone holding the VMID. destroy_instance() is a no-op
+            # if the clone never materialised.
+            try:
+                destroy_instance(client, node, vmid)
+            except Exception as cleanup_exc:
+                exc = RuntimeError(f"{exc} (and removing the half-made clone {vmid} failed: {cleanup_exc})")
         with _db_context():
             from datetime import datetime, timezone
             row = db.session.get(VMInstance, reserved.vm_instance_id)

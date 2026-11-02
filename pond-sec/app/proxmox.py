@@ -405,3 +405,19 @@ def apply_network_rule(dest_vmid: int, source_ip: str, port: int,
     _refuse_protected(dest_vmid)
     node = node or current_app.config["PROXMOX_NODE"]
     _core.apply_network_rule(_client(), node, dest_vmid, source_ip, port, proto)
+    
+def vm_running(vmid: int, node: str = None) -> bool:
+    """True only if the VM exists and Proxmox reports it running. Raises
+    ProxmoxError if Proxmox can't be asked, so a caller never mistakes
+    "unreachable" for "stopped"."""
+    _refuse_protected(vmid)
+    node = node or current_app.config["PROXMOX_NODE"]
+    try:
+        client = _client()
+        if not _core.instance_exists(client, node, vmid):
+            return False
+        return client.nodes(node).qemu(vmid).status.current.get().get("status") == "running"
+    except ProxmoxError:
+        raise
+    except Exception as exc:
+        raise ProxmoxError(f"Could not read the state of vmid {vmid}: {exc}") from exc

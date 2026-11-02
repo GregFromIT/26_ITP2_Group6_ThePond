@@ -53,7 +53,8 @@ throttle if it can be hammered -> audit.record() if it changes state.
 
 import shlex
 import threading
-from datetime import datetime
+
+from datetime import datetime, timedelta
 from urllib.parse import quote
 
 import websocket as ws_client
@@ -75,7 +76,7 @@ from .auth import login_required
 from .proxmox import (
     ProxmoxError, apply_network_rule, clone_and_start, create_session_vnet,
     destroy_session_vnet, get_console_ticket, relay_sslopt,
-    stop_and_destroy,
+    stop_and_destroy, vm_running,
 )
 from .scoring import (
     FLAG_HIT, FLAG_MISS, FLAG_REPEAT, category_challenge_matrix, category_leaderboard,
@@ -453,20 +454,35 @@ def launch(challenge_id):
             clone, assignment = next(iter(clones.values()))
             container_lab.start(instance, {"vmid": clone.vmid, "node": clone.node,
                 "instance_id": instance.instance_id, "challenge_template_id": assignment.challenge_template_id})
-    except (ProxmoxError, container_lab.ContainerLabError) as exc:
-        current_app.logger.error("launch failed for instance %s: %s", instance.instance_id, exc)
+        if len(clones) > 1:
+            # Inside the try: a refused rule must tear the session down like
+            # any other launch failure, not leave it stuck in 'provisioning'.
+            rules = db.session.query(NetworkRule).filter_by(challenge_id=challenge_id).all()
+            for rule in rules:
+                if rule.from_role not in clones or rule.to_role not in clones:
+                    continue
+                source_ip = clones[rule.from_role][1].static_ip
+                if not source_ip:
+                    continue
+                dest_clone, _ = clones[rule.to_role]
+                apply_network_rule(dest_clone.vmid, source_ip, rule.port, dest_clone.node, rule.protocol)
+    except Exception as exc:
+        # Any failure, not only ProxmoxError: a full VMID range raises
+        # RuntimeError and proxmoxer raises ResourceException. Whatever it
+        # was, the session must not be left 'provisioning' with VMs running.
+        current_app.logger.exception("launch failed for instance %s: %s", instance.instance_id, exc)
         container_lab.stop(instance)
         # A half-launched multi-VM session is worse than a clean failure -
         # tear down everything that DID start before reporting the error.
         for clone, _ in clones.values():
             try:
                 stop_and_destroy(clone.vmid, clone.node)
-            except ProxmoxError:
+            except Exception:
                 pass  # best-effort - already failing, do not mask the original error
         if vnet is not None:
             try:
                 destroy_session_vnet(vnet)
-            except ProxmoxError:
+            except Exception:
                 pass
         instance.status = "abandoned"
         instance.error_message = "Environment launch failed; see administrator logs."
@@ -474,17 +490,6 @@ def launch(challenge_id):
         db.session.commit()
         flash("The environment could not be started. Please contact an administrator.", "error")
         return redirect(url_for("themes.detail", theme_id=category))
-
-    if len(clones) > 1:
-        rules = db.session.query(NetworkRule).filter_by(challenge_id=challenge_id).all()
-        for rule in rules:
-            if rule.from_role not in clones or rule.to_role not in clones:
-                continue  # a rule referencing a role this challenge doesn't have - skip, don't crash launch
-            source_ip = clones[rule.from_role][1].static_ip
-            if not source_ip:
-                continue  # can't write a rule without a known source address
-            dest_clone, _ = clones[rule.to_role]
-            apply_network_rule(dest_clone.vmid, source_ip, rule.port, dest_clone.node, rule.protocol)
 
     instance.status = "running"
     db.session.commit()
@@ -739,3 +744,37 @@ def _close(instance_id: int, status: str):
             vm.status = "error"
             db.session.commit()
             print(f"[proxmox] teardown failed for vmid {vm.proxmox_vmid}: {exc}")
+            
+PROVISIONING_GRACE = timedelta(minutes=15)   # well past PROXMOX_TASK_TIMEOUT's 300 s
+
+
+def reap_sessions() -> list:
+    now = utcnow_naive()
+    ttl = timedelta(hours=current_app.config["POND_SESSION_TTL_HOURS"])
+    closed = []
+    sessions = (db.session.query(ChallengeInstance)
+                .filter(ChallengeInstance.status.in_(("provisioning", "running")))
+                .order_by(ChallengeInstance.instance_id).all())
+    for ci in sessions:
+        started = ci.started_at or ci.requested_at
+        if started is not None and started.tzinfo is not None:
+            started = started.replace(tzinfo=None)   # stored UTC; compare naive
+        reason = None
+        if ci.status == "provisioning":
+            if started is None or now - started > PROVISIONING_GRACE:
+                reason = "stuck provisioning"
+        elif started is not None and now - started > ttl:
+            reason = f"past {current_app.config['POND_SESSION_TTL_HOURS']}h TTL"
+        else:
+            vms = (db.session.query(VMInstance)
+                   .filter(VMInstance.instance_id == ci.instance_id, VMInstance.deleted_at.is_(None),
+                           VMInstance.proxmox_vmid.isnot(None)).all())
+            try:
+                if any(not vm_running(vm.proxmox_vmid, vm.proxmox_node) for vm in vms):
+                    reason = "VM not running"
+            except ProxmoxError as exc:
+                current_app.logger.warning("reaper skipped instance %s: %s", ci.instance_id, exc)
+        if reason:
+            _close(ci.instance_id, "abandoned")
+            closed.append((ci.instance_id, reason))
+    return closed

@@ -60,7 +60,7 @@
     # forum.proxmox.com/threads/135451). Must match the app's
     # PROXMOX_WORKSTATION_ZONE. Empty = pondnc is still in pond_sdn_zone.
     pond_workstation_vnet: ""
-    pond_protected_vmids: [300, 301, 302, 303]
+    pond_protected_vmids: [300, 301, 302, 303, 1000]
     pond_node: "pve"
     pond_grant_node_audit: false      # only if task-status reads return 403
     pond_token_secret_file: "/root/pond-launcher.token"

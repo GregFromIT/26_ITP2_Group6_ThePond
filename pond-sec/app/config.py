@@ -162,7 +162,7 @@ class Config:
 
     # VMs that belong to other projects on the same cluster. The app never
     # clones, starts or deletes these, whatever the token could technically do.
-    PROXMOX_PROTECTED_VMIDS = os.environ.get("PROXMOX_PROTECTED_VMIDS", "300-303")
+    PROXMOX_PROTECTED_VMIDS = os.environ.get("PROXMOX_PROTECTED_VMIDS", "300-303,1000")
 
     # Seconds a passed privilege self-check is trusted, per worker. 0 = check on
     # every launch.
@@ -175,3 +175,4 @@ class Config:
     PROXMOX_SDN_ZONE = os.environ.get("PROXMOX_SDN_ZONE", "pondz")
     # Seconds to wait for a clone, stop or delete task before giving up.
     PROXMOX_TASK_TIMEOUT = _int("PROXMOX_TASK_TIMEOUT", 300)
+    POND_SESSION_TTL_HOURS = _int("POND_SESSION_TTL_HOURS", 3)
