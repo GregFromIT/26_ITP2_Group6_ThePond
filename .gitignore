@@ -1,18 +1,22 @@
+# Python
 __pycache__/
 *.pyc
 .venv/
-.env
-.claude/
-db/*.db
-group_vars/secrets.txt
-
-instance/
-*.db
-.env
-debug.md
 venv/
-the_pond_current.zip
+
+# Secrets and local settings
+.env
+group_vars/secrets.txt
+.claude/
+debug.md
+
+# Databases and runtime files
+*.db
 *.db-wal
 *.db-shm
-*.db-wal
-*.db-shm
+*.bak
+instance/
+
+# Editor files and stray archives
+*.swp
+*.zip
