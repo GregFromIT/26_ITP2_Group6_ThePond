@@ -268,15 +268,38 @@ def destroy_session_vnet(client: ProxmoxAPI, vnet: str) -> None:
     client.cluster.sdn.vnets(vnet).delete()
     client.cluster.sdn.put()
 
+def check_isolation_preconditions(client: ProxmoxAPI, zone: str = VNET_ZONE) -> None:
+    """Refuse to launch unless isolation can take effect. Needs Sys.Audit on /
+    and SDN.Audit on the zone - both already in pond_least_privilege.yml."""
+    zones = {z.get("zone"): z for z in client.cluster.sdn.zones.get()}
+    if zones.get(zone, {}).get("type") != "simple":
+        raise ProxmoxError(f"SDN zone {zone!r} is missing or is not a Simple zone")
+    if not int(client.cluster.firewall.options.get().get("enable", 0)):
+        raise ProxmoxError("the datacenter firewall is disabled, so VM firewalls would not apply")
 
-def enable_vm_firewall(client: ProxmoxAPI, node: str, vmid: int) -> None:
-    """Deny-by-default inbound posture for one VM. Must be paired with
-    firewall=1 on that VM's net0 line (done in clone_and_start's net0
-    rewrite below) - enabling the VM-level firewall alone does nothing if
-    the NIC itself doesn't have filtering turned on; Proxmox raises no
-    error for that mismatch; it just silently doesn't enforce."""
+EGRESS_COMMENT = "pond-egress"
+
+
+def enable_vm_firewall(
+    client: ProxmoxAPI, node: str, vmid: int, egress_rules: list[dict] | None = None,
+) -> None:
+    """Inbound DROP. With egress_rules, also outbound DROP except those rules,
+    written top-to-bottom in the order given (see ordering note above)."""
     _refuse_protected(vmid)
-    client.nodes(node).qemu(vmid).firewall.options.put(enable=1, policy_in="DROP")
+    vm = client.nodes(node).qemu(vmid)
+    if egress_rules is None:
+        vm.firewall.options.put(enable=1, policy_in="DROP")
+        return
+    for i, rule in reversed(list(enumerate(egress_rules))):
+        vm.firewall.rules.post(type="out", enable=1, comment=f"{EGRESS_COMMENT}-{i}", **rule)
+    written = sorted((r for r in vm.firewall.rules.get()
+                      if str(r.get("comment", "")).startswith(f"{EGRESS_COMMENT}-")),
+                     key=lambda r: int(r["pos"]))
+    got = [r["comment"] for r in written]
+    want = [f"{EGRESS_COMMENT}-{i}" for i in range(len(egress_rules))]
+    if got != want:
+        raise ProxmoxError(f"clone {vmid} egress rules were written out of order: {got}")
+    vm.firewall.options.put(enable=1, policy_in="DROP", policy_out="DROP", dhcp=1)
 
 
 def apply_network_rule(
@@ -287,7 +310,7 @@ def apply_network_rule(
     protected owns the rule that lets someone in, not the source."""
     _refuse_protected(dest_vmid)
     client.nodes(node).qemu(dest_vmid).firewall.rules.post(
-        type="in", action="ACCEPT", source=source_ip, dport=port, proto=proto,
+        type="in", action="ACCEPT", source=source_ip, dport=port, proto=proto, enable=1
     )
 
 def get_console_ticket(client: ProxmoxAPI, node: str, vmid: int) -> dict:
@@ -473,6 +496,33 @@ def inject_firstboot_command(
     finally:
         ssh.close()
 
+NIC_KEY_RE = re.compile(r"^net\d+$")
+
+
+def _firewalled_nic(value: str, vnet: str | None) -> str:
+    """Firewall on; if vnet given, also onto that VNet with no tag/trunks."""
+    drop = ("firewall=",) + (("bridge=", "tag=", "trunks=") if vnet else ())
+    parts = [p for p in value.split(",") if not p.startswith(drop)]
+    if vnet:
+        parts.append(f"bridge={vnet}")
+    return ",".join(parts + ["firewall=1"])
+
+
+def _firewall_nics(client: ProxmoxAPI, node: str, vmid: int, vnet: str | None) -> None:
+    """Rewrite every NIC of a stopped clone, read back, refuse if any didn't take."""
+    vm = client.nodes(node).qemu(vmid)
+    nics = {k: v for k, v in vm.config.get().items() if NIC_KEY_RE.match(k)}
+    if not nics:
+        raise ProxmoxError(f"clone {vmid} has no network interface to firewall")
+    vm.config.put(**{k: _firewalled_nic(v, vnet) for k, v in nics.items()})
+    for key, value in vm.config.get().items():
+        if not NIC_KEY_RE.match(key):
+            continue
+        parts = value.split(",")
+        wrong_bridge = vnet is not None and (f"bridge={vnet}" not in parts
+                                             or any(p.startswith(("tag=", "trunks=")) for p in parts))
+        if "firewall=1" not in parts or wrong_bridge:
+            raise ProxmoxError(f"clone {vmid} {key} is not isolated after rewrite: {value}")
 
 # ------------------------------------------------------------------ clone
 
@@ -494,6 +544,7 @@ def clone_and_start(
     pool: str | None = None,
     challenge_template_id: int | None = None,
     firstboot_command: str | None = None,
+    egress_rules: list[dict] | None = None,
 ) -> Clone:
     """
     static_ip/proxmox_host: pass both together to bake a static IP into
@@ -539,13 +590,8 @@ def clone_and_start(
         if firstboot_command is not None:
             inject_firstboot_command(client, node, vmid, firstboot_command, proxmox_host)
 
-        if vnet is not None:
-            current_net0 = client.nodes(node).qemu(vmid).config.get()["net0"]
-            new_net0 = re.sub(r"bridge=[^,]+", f"bridge={vnet}", current_net0)
-            new_net0 = re.sub(r",tag=\d+", "", new_net0)
-            if "firewall=1" not in new_net0:
-                new_net0 += ",firewall=1"
-            client.nodes(node).qemu(vmid).config.put(net0=new_net0)
+        _firewall_nics(client, node, vmid, vnet)
+        enable_vm_firewall(client, node, vmid, egress_rules=egress_rules)
 
         client.nodes(node).qemu(vmid).status.start.post()
     except Exception as exc:

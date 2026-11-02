@@ -3,7 +3,7 @@
 
 {% block content %}
 <header class="page-head">
-  <p class="eyebrow">{{ theme['category'] }} · weighting ×{{ '%.1f'|format(theme['weighting']) }}</p>
+  <p class="eyebrow">Theme</p>
   <h1>{{ theme['name'] }}</h1>
   <p class="lede">{{ theme['summary'] }}</p>
 </header>
@@ -121,8 +121,8 @@
 
 <section class="board">
   <header class="board-head">
-    <h2>Category scoreboard</h2>
-    <p class="hint">Points per challenge in this category.</p>
+    <h2>Theme scoreboard</h2>
+    <p class="hint">Points per challenge in this theme.</p>
   </header>
   <div class="table-wrap">
     <table class="grid">
@@ -146,7 +146,7 @@
           <td class="mono num strong">{{ row['score'] }}</td>
         </tr>
         {% else %}
-        <tr><td colspan="{{ 3 + matrix['challenges']|length }}" class="empty">No scores in this category yet.</td></tr>
+        <tr><td colspan="{{ 3 + matrix['challenges']|length }}" class="empty">No scores in this theme yet.</td></tr>
         {% endfor %}
       </tbody>
     </table>

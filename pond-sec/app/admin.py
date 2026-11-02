@@ -33,7 +33,7 @@ from datetime import datetime, timedelta
 
 from sqlalchemy.orm import aliased
 
-from db.orm import db
+from db.orm import db, utcnow_naive
 from db.challenge_models import Challenge
 from db.runtime_models import ChallengeInstance, VMInstance
 from db.user_models import Role, User, UserCredential
@@ -189,7 +189,7 @@ def approve(user_id):
 
     user = db.session.get(User, user_id)
     user.approval_status = "approved"
-    user.approved_at = datetime.utcnow()
+    user.approved_at = utcnow_naive()
     user.approved_by = g.user["user_id"]
     db.session.commit()
     audit.record(audit.ACCOUNT_APPROVED, user_id=user_id, username=target["username"],
@@ -215,7 +215,7 @@ def reject(user_id):
 
     user = db.session.get(User, user_id)
     user.approval_status = "rejected"
-    user.approved_at = datetime.utcnow()
+    user.approved_at = utcnow_naive()
     user.approved_by = g.user["user_id"]
     db.session.commit()
     audit.record(audit.ACCOUNT_REJECTED, user_id=user_id, username=target["username"],
@@ -273,7 +273,7 @@ def lock(user_id):
     target = _target(user_id)
     _may_act_on(target)
     hours = min(max(int(request.form.get("hours", 24) or 24), 1), 8760)
-    until = datetime.utcnow() + timedelta(hours=hours)
+    until = utcnow_naive() + timedelta(hours=hours)
     user = db.session.get(User, user_id)
     if user.credentials is None:
         user.credentials = UserCredential(user_id=user_id, password_hash="")
@@ -483,7 +483,7 @@ def set_role_command(username, role):
     if newly_approved:
         # Whoever holds the shell has decided this account belongs here.
         user.approval_status = "approved"
-        user.approved_at = datetime.utcnow()
+        user.approved_at = utcnow_naive()
         user.approved_by = None
     db.session.commit()
     audit.record("account.role_changed", user_id=user.user_id, username=username,

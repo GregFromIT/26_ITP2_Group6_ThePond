@@ -16,7 +16,7 @@ from datetime import datetime, timedelta
 from flask import current_app
 from werkzeug.security import check_password_hash, generate_password_hash
 
-from db.orm import db
+from db.orm import db, utcnow_naive
 from db.user_models import User, UserCredential
 
 # Single source of truth for the stored timestamp format — see db.utcnow().
@@ -81,7 +81,7 @@ def set_password(user_id: int, password: str, must_change: bool = False):
        user.credentials = UserCredential(user_id=user_id, password_hash=password_hash)
     else:
        user.credentials.password_hash = password_hash
-       user.credentials.password_changed_at = datetime.utcnow()
+       user.credentials.password_changed_at = utcnow_naive()
     user.credentials.must_change_password = must_change
     db.session.commit()
 
@@ -127,7 +127,7 @@ def lockout_remaining(user_row):
     locked_until = parse_ts(user_row["locked_until"])
     if locked_until is None:
         return 0
-    remaining = (locked_until - datetime.utcnow()).total_seconds()
+    remaining = (locked_until - utcnow_naive()).total_seconds()
     if remaining <= 0:
         clear_lockout(user_row["user_id"])
         return 0
@@ -142,7 +142,7 @@ def register_failure(user_row):
     limit = current_app.config["MAX_LOGIN_ATTEMPTS"]
     if attempts >= limit:
        minutes = current_app.config["LOCKOUT_MINUTES"]
-       until = datetime.utcnow() + timedelta(minutes=minutes or 525600)
+       until = utcnow_naive() + timedelta(minutes=minutes or 525600)
        user.credentials.failed_login_count = attempts
        user.credentials.locked_until = until
        db.session.commit()

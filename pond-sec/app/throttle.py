@@ -11,7 +11,7 @@ from datetime import datetime, timedelta
 
 from flask import request
 
-from db.orm import db
+from db.orm import db, utcnow_naive
 from db.throttle_models import ThrottleEvent
 
 
@@ -46,7 +46,7 @@ def client_ip() -> str:
 
 
 def _window_start(seconds: int) -> datetime:
-    return datetime.utcnow() - timedelta(seconds=seconds)
+    return utcnow_naive() - timedelta(seconds=seconds)
 
 
 def check(action: str, key: str):
@@ -69,7 +69,7 @@ def check(action: str, key: str):
        ThrottleEvent.bucket == bucket, ThrottleEvent.occurred_at >= since
    ).scalar()
     
-    wait = int((oldest + timedelta(seconds=window) - datetime.utcnow()).total_seconds())
+    wait = int((oldest + timedelta(seconds=window) - utcnow_naive()).total_seconds())
     return False, max(1, wait)
 
 
@@ -94,6 +94,6 @@ def clear(action: str, key: str):
 
 def prune(older_than_seconds: int = 86400):
    db.session.query(ThrottleEvent).filter(
-        ThrottleEvent.occurred_at < (datetime.utcnow() - timedelta(seconds=older_than_seconds))
+        ThrottleEvent.occurred_at < (utcnow_naive() - timedelta(seconds=older_than_seconds))
    ).delete()
    db.session.commit()

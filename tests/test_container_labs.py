@@ -44,7 +44,8 @@ def lab(env,monkeypatch):
     def stop(vmid,node,**kwargs):calls.append(('stop',vmid,kwargs))
     monkeypatch.setattr(themes,'clone_and_start',clone)
     monkeypatch.setattr(themes,'stop_and_destroy',stop)
-    for name in ['create_session_vnet','get_console_ticket','enable_vm_firewall','apply_network_rule']:
+    monkeypatch.setattr(themes,'create_session_vnet',lambda iid:calls.append(('vnet',iid)) or f's{iid:x}')
+    for name in ['get_console_ticket','apply_network_rule']:
         monkeypatch.setattr(themes,name,lambda *a,**k:pytest.fail('Unexpected operation'))
     with app.app_context():
         t=VMTemplate(template_name='redduck',proxmox_template_vmid=1200,proxmox_node='test')
@@ -148,8 +149,11 @@ def test_standard_vm_launch_uses_assignments_without_docker(lab):
     with app.app_context():
         row=db.session.get(Challenge,ids[0]);row.execution_type='vm';row.docker_challenge_key=None;db.session.commit()
     launch(app,ids[0])
-    assert len(calls)==1 and not adapter.started
-
+    clones=[c for c in calls if c[0]=='clone']
+    assert len(clones)==1 and not adapter.started
+    # a single-VM launch gets its own session VNet too, and no gateway
+    assert calls[0][0]=='vnet' and clones[0][2]['vnet']==f's{calls[0][1]:x}'
+    assert clones[0][2]['egress_rules'] is None and 'gateway' not in clones[0][2]
 
 def test_offline_uses_no_vm_or_docker_and_can_finish_unscored(lab):
     app,ids,adapter,calls=lab
@@ -235,3 +239,50 @@ def test_cleanup_cli_refuses_live_attempt_and_recovers_closed_attempt(lab, monke
     main(args)
     with app.app_context():
         assert db.session.get(ChallengeInstance, iid).docker_status == 'closed'
+
+def test_container_lab_stays_on_pondnc_with_egress_only_to_docker_host(lab):
+    app,ids,adapter,calls=lab
+    launch(app,ids[0])
+    (kind,_,kwargs),=calls
+    assert kind=='clone' and kwargs['vnet'] is None
+    assert kwargs['egress_rules'][0]=={'action':'ACCEPT','proto':'tcp','dest':app.config['POND_DOCKER_HOST_IP']}
+
+
+def test_seeded_red_duck_vm_challenge_stays_on_pondnc(lab):
+    app,ids,adapter,calls=lab
+    with app.app_context():
+        row=db.session.get(Challenge,ids[0]);row.execution_type='vm';row.docker_challenge_key=None
+        db.session.query(VMTemplate).one().template_name=app.config['POND_HANDOUT_TEMPLATE']
+        db.session.commit()
+    launch(app,ids[0])
+    (kind,_,kwargs),=calls
+    assert kind=='clone' and kwargs['vnet'] is None
+    assert kwargs['egress_rules'][0]['dest']==app.config['POND_DOCKER_HOST_IP']
+
+
+def _egress(app, ports):
+    app.config['POND_WORKSTATION_INTERNET_PORTS']=ports
+    with app.test_request_context():
+        return themes._workstation_egress()
+
+
+def test_workstation_egress_allows_docker_dns_then_drops_private_then_web(lab):
+    app=lab[0]
+    rules=_egress(app,'80,443')
+    assert [(r['action'],r.get('proto'),r.get('dest'),r.get('dport')) for r in rules]==[
+        ('ACCEPT','tcp',app.config['POND_DOCKER_HOST_IP'],None),
+        ('ACCEPT','udp',None,'53'),('ACCEPT','tcp',None,'53'),
+        ('DROP',None,themes.PRIVATE_NETS,None),
+        ('ACCEPT','tcp',None,'80,443')]
+    import ipaddress
+    nets=[ipaddress.ip_network(n) for n in themes.PRIVATE_NETS.split(',')]
+    for ip in ['10.1.21.151','10.1.20.201','10.1.20.253','10.1.21.248','10.10.10.20']:
+        assert any(ipaddress.ip_address(ip) in n for n in nets), ip
+
+
+def test_workstation_egress_without_internet_is_docker_host_only(lab):
+    app=lab[0]
+    rules=_egress(app,'')
+    assert [r['action'] for r in rules]==['ACCEPT','DROP']
+    assert rules[0]['dest']==app.config['POND_DOCKER_HOST_IP']
+

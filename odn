@@ -1,0 +1,27 @@
+[1mdiff --git a/playbooks/pond_least_privilege.yml b/playbooks/pond_least_privilege.yml[m
+[1mindex 46e07b8..51b9338 100644[m
+[1m--- a/playbooks/pond_least_privilege.yml[m
+[1m+++ b/playbooks/pond_least_privilege.yml[m
+[36m@@ -54,6 +54,7 @@[m
+     # the self-check refuses any grant outside them.[m
+     pond_storages: ["local-lvm"][m
+     pond_template_bridges: [][m
+[32m+[m[32m    pond_workstation_vnet: ""[m
+     pond_protected_vmids: [300, 301, 302, 303][m
+     pond_node: "pve"[m
+     pond_grant_node_audit: false      # only if task-status reads return 403[m
+[36m@@ -204,12 +205,12 @@[m
+           {%- set out = pond_acls | list -%}[m
+           {%- for sid in pond_storages -%}{%- set _ = out.append({'path': '/storage/' ~ sid, 'role': 'PondStorage', 'propagate': 0}) -%}{%- endfor -%}[m
+           {%- for br in pond_template_bridges -%}{%- set _ = out.append({'path': '/sdn/zones/localnetwork/' ~ br, 'role': 'PondBridge', 'propagate': 1}) -%}{%- endfor -%}[m
+[32m+[m[32m          {%- if pond_workstation_vnet -%}{%- set _ = out.append({'path': '/sdn/zones/' ~ pond_workstation_vnet, 'role': 'PondBridge', 'propagate': 1}) -%}{%- endif -%}[m
+           {%- if pond_grant_node_audit -%}{%- set _ = out.append({'path': '/nodes/' ~ pond_node, 'role': 'PondAudit', 'propagate': 0}) -%}{%- endif -%}[m
+           {{- out -}}[m
+         pond_desired_roles: >-[m
+           {{ pond_roles | dict2items | rejectattr('key', 'equalto', 'PondBridge') | list[m
+[31m-             + (pond_roles | dict2items | selectattr('key', 'equalto', 'PondBridge') | list if pond_template_bridges | length > 0 else []) }}[m
+[31m-[m
+[32m+[m[32m             + (pond_roles | dict2items | selectattr('key', 'equalto', 'PondBridge') | list if (pond_template_bridges | length > 0 or pond_workstation_vnet) else []) }}[m
+     # ----------------------------------------------------------------- roles[m
+     - name: Read existing roles[m
+       ansible.builtin.command: pveum role list --output-format json[m

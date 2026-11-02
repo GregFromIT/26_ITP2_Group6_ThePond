@@ -22,7 +22,7 @@ from typing import Optional
 from sqlalchemy import Boolean, CheckConstraint, DateTime, ForeignKey, Integer, String
 from sqlalchemy.orm import Mapped, mapped_column, relationship
 
-from db.orm import db
+from db.orm import db, utcnow_naive
 
 
 class Role(db.Model):
@@ -98,7 +98,7 @@ class User(db.Model):
     created_at: Mapped[datetime] = mapped_column(
         DateTime,
         nullable=False,
-        default=datetime.utcnow
+        default=utcnow_naive
     )
 
     last_login_at: Mapped[Optional[datetime]] = mapped_column(
@@ -159,7 +159,7 @@ class UserCredential(db.Model):
     password_changed_at: Mapped[datetime] = mapped_column(
         DateTime,
         nullable=False,
-        default=datetime.utcnow
+        default=utcnow_naive
     )
 
     must_change_password: Mapped[bool] = mapped_column(
